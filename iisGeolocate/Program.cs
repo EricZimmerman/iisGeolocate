@@ -1,17 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using MaxMind.GeoIP2;
 using MaxMind.GeoIP2.Exceptions;
 
 namespace iisGeolocate
 {
-    class Program
+    internal class Program
     {
-        static void Main(string[] args)
+        private static void Main(string[] args)
         {
             var outDirName = "out";
             var outDir = Path.Combine(Environment.CurrentDirectory, outDirName);
@@ -20,7 +17,6 @@ namespace iisGeolocate
             {
                 Directory.CreateDirectory(outDir);
             }
-
 
 
             //#Software: Microsoft Internet Information Services 6.0
@@ -49,7 +45,6 @@ namespace iisGeolocate
 
             using (var reader = new DatabaseReader("GeoLite2-City.mmdb"))
             {
-
                 foreach (var file in logFiles)
                 {
                     Console.WriteLine($"Opening '{file}'");
@@ -96,7 +91,7 @@ namespace iisGeolocate
                                     {
                                         var city = reader.City(ip);
                                         geoCity = city.City?.Name?.Replace(' ', '_');
-                                        
+
                                         geoCountry = city.Country.Name.Replace(' ', '_');
 
                                         if (uniqueIps.ContainsKey(ip) == false)
@@ -105,7 +100,8 @@ namespace iisGeolocate
                                         }
                                     }
                                     catch (AddressNotFoundException)
-                                    { }
+                                    {
+                                    }
                                     catch (Exception ex)
                                     {
                                         Console.WriteLine($"Error: {ex.Message} for line: {line}");
@@ -116,20 +112,16 @@ namespace iisGeolocate
                                     line = line + $" {geoCity} {geoCountry}";
                                 }
 
-                              
 
                                 outstream.WriteLine(line);
 
                                 line = instream.ReadLine();
                             }
-
                         }
 
                         outstream.Flush();
                     }
                 }
-
-
             }
 
             Console.WriteLine("\r\n\r\n");
@@ -139,20 +131,19 @@ namespace iisGeolocate
                 Console.WriteLine("No unique, geolocated IPs found!");
                 return;
             }
-            
-                Console.WriteLine($"Saving unique IPs to '!UniqueIPs.tsv'");
-                using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.tsv"))))
+
+            Console.WriteLine("Saving unique IPs to \'!UniqueIPs.tsv\'");
+            using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.tsv"))))
+            {
+                foreach (var uniqueIp in uniqueIps)
                 {
-                    foreach (var uniqueIp in uniqueIps)
-                    {
-                        var line = $"{uniqueIp.Key}\t{uniqueIp.Value}";
+                    var line = $"{uniqueIp.Key}\t{uniqueIp.Value}";
 
-                        uniqOut.WriteLine(line);
-                    }
-
-                    uniqOut.Flush();
+                    uniqOut.WriteLine(line);
                 }
-            
+
+                uniqOut.Flush();
+            }
         }
     }
 }
