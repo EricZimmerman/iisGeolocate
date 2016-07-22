@@ -12,4 +12,6 @@ Extract it to the same directory as all your logs, then open a command prompt an
 3. wait
 4. look in the out directory for processed logs and a file containing all unique IPs
 
+The Geolocation data will be added to the end of each log entry
+
 lemme know if you have any issues or if you want other features added
