@@ -44,6 +44,8 @@ namespace iisGeolocate
                 return;
             }
 
+            var cIpSlot = -1;
+
 
             using (var reader = new DatabaseReader("GeoLite2-City.mmdb"))
             {
@@ -57,7 +59,6 @@ namespace iisGeolocate
 
                     using (var outstream = new StreamWriter(File.OpenWrite(outFilename)))
                     {
-                       
                         using (var instream = File.OpenText(file))
                         {
                             var line = instream.ReadLine();
@@ -66,7 +67,21 @@ namespace iisGeolocate
                             {
                                 if (line.StartsWith("#Fields"))
                                 {
-                                    line = line + "GeoCountry GeoCity";
+                                    line = line.Trim() + " GeoCountry GeoCity";
+                                    var fields = line.Split(' ');
+                                    var pos = 0;
+                                    Console.WriteLine("Looking for/verifying 'c-ip' field position...");
+                                    foreach (var field in fields)
+                                    {
+                                        if (field.Equals("c-ip"))
+                                        {
+                                            cIpSlot = pos - 1; //account for #Fields: 
+
+                                            Console.WriteLine($"Found 'c-ip' field position in column '{cIpSlot}'!");
+                                            break;
+                                        }
+                                        pos += 1;
+                                    }
                                 }
 
                                 var geoCity = "NA";
@@ -75,7 +90,7 @@ namespace iisGeolocate
                                 if (line.StartsWith("#") == false)
                                 {
                                     var segs = line.Split(' ');
-                                    var ip = segs[9];
+                                    var ip = segs[cIpSlot];
 
                                     try
                                     {
@@ -83,7 +98,6 @@ namespace iisGeolocate
                                         geoCity = city.City?.Name?.Replace(' ', '_');
                                         
                                         geoCountry = city.Country.Name.Replace(' ', '_');
-
 
                                         if (uniqueIps.ContainsKey(ip) == false)
                                         {
@@ -118,8 +132,14 @@ namespace iisGeolocate
 
             }
 
-            if (uniqueIps.Count > 0)
+            Console.WriteLine("\r\n\r\n");
+
+            if (uniqueIps.Count <= 0)
             {
+                Console.WriteLine("No unique, geolocated IPs found!");
+                return;
+            }
+            
                 Console.WriteLine($"Saving unique IPs to '!UniqueIPs.tsv'");
                 using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.tsv"))))
                 {
@@ -132,7 +152,7 @@ namespace iisGeolocate
 
                     uniqOut.Flush();
                 }
-            }
+            
         }
     }
 }
