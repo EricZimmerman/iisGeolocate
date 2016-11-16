@@ -1,23 +1,101 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
+using Fclp;
 using MaxMind.GeoIP2;
 using MaxMind.GeoIP2.Exceptions;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
 
 namespace iisGeolocate
 {
     internal class Program
     {
+
+        private static Logger _logger;
+        private static FluentCommandLineParser<ApplicationArguments> _fluentCommandLineParser;
+
+        internal class ApplicationArguments
+        {
+            public string LogDirectory { get; set; }
+          
+        }
+
+
+        private static void SetupNLog()
+        {
+            var config = new LoggingConfiguration();
+            var loglevel = LogLevel.Info;
+
+            var layout = @"${longdate} | ${message}";
+
+            var consoleTarget = new ColoredConsoleTarget();
+
+            config.AddTarget("console", consoleTarget);
+
+            consoleTarget.Layout = layout;
+
+            var rule1 = new LoggingRule("*", loglevel, consoleTarget);
+            config.LoggingRules.Add(rule1);
+
+            LogManager.Configuration = config;
+        }
+
         private static void Main(string[] args)
         {
+          
+
+
+
+            SetupNLog();
+
+            _fluentCommandLineParser = new FluentCommandLineParser<ApplicationArguments>
+            {
+                IsCaseSensitive = false
+            };
+            _fluentCommandLineParser.Setup(arg => arg.LogDirectory)
+                .As('L')
+                .WithDescription(
+                    "The directory that contains IIS logs. If not specified, defaults to same directory as executable")
+                .SetDefault(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
+
+            _logger = LogManager.GetCurrentClassLogger();
+
+            var header =
+                $"iisgeolocate version {Assembly.GetExecutingAssembly().GetName().Version}" +
+                "\r\n\r\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)" +
+                "\r\nhttps://github.com/EricZimmerman/iisGeolocate";
+
+            _fluentCommandLineParser.SetupHelp("?", "help")
+                .WithHeader(header)
+                .Callback(text => _logger.Info(text + "\r\n" + ""));
+
+            var result = _fluentCommandLineParser.Parse(args);
+
+            if (result.HelpCalled)
+            {
+                return;
+            }
+
+            if (result.HasErrors)
+            {
+                _logger.Error("");
+                _logger.Error(result.ErrorText);
+
+                _fluentCommandLineParser.HelpOption.ShowHelp(_fluentCommandLineParser.Options);
+
+                return;
+            }
+
             var outDirName = "out";
-            var outDir = Path.Combine(Environment.CurrentDirectory, outDirName);
+            var outDir = Path.Combine(_fluentCommandLineParser.Object.LogDirectory, outDirName);
 
             if (Directory.Exists(outDir) == false)
             {
                 Directory.CreateDirectory(outDir);
             }
-
 
             //#Software: Microsoft Internet Information Services 6.0
             //#Version: 1.0
@@ -28,26 +106,32 @@ namespace iisGeolocate
 
             var uniqueIps = new Dictionary<string, string>();
 
-            var logFiles = Directory.GetFiles(Environment.CurrentDirectory, "*.log");
+            var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log");
 
             if (logFiles.Length > 0)
             {
-                Console.WriteLine($"Found {logFiles.Length} log files");
+                _logger.Info($"Found {logFiles.Length} log files");
             }
             else
             {
-                Console.WriteLine("No files ending in .log found. Exiting...");
+                _logger.Fatal("No files ending in .log found. Exiting...");
                 return;
             }
 
             var cIpSlot = -1;
+
+            if (File.Exists("GeoLite2-City.mmdb") == false)
+            {
+                _logger.Fatal("'GeoLite2-City.mmdb' not found! Cannot continue. Exiting");
+                return;
+            }
 
 
             using (var reader = new DatabaseReader("GeoLite2-City.mmdb"))
             {
                 foreach (var file in logFiles)
                 {
-                    Console.WriteLine($"Opening '{file}'");
+                    _logger.Warn($"Opening '{file}'");
 
                     var baseFilename = Path.GetFileName(file);
                     var outFilename = Path.Combine(outDir, baseFilename);
@@ -65,14 +149,14 @@ namespace iisGeolocate
                                     line = line.Trim() + " GeoCountry GeoCity";
                                     var fields = line.Split(' ');
                                     var pos = 0;
-                                    Console.WriteLine("Looking for/verifying 'c-ip' field position...");
+                                    _logger.Info("Looking for/verifying 'c-ip' field position...");
                                     foreach (var field in fields)
                                     {
                                         if (field.Equals("c-ip"))
                                         {
                                             cIpSlot = pos - 1; //account for #Fields: 
 
-                                            Console.WriteLine($"Found 'c-ip' field position in column '{cIpSlot}'!");
+                                            _logger.Info($"Found 'c-ip' field position in column '{cIpSlot}'!");
                                             break;
                                         }
                                         pos += 1;
@@ -104,7 +188,7 @@ namespace iisGeolocate
                                     }
                                     catch (Exception ex)
                                     {
-                                        Console.WriteLine($"Error: {ex.Message} for line: {line}");
+                                        _logger.Info($"Error: {ex.Message} for line: {line}");
                                         geoCity = $"City error: {ex.Message}";
                                         geoCountry = "Country error: (See city error)";
                                     }
@@ -124,15 +208,15 @@ namespace iisGeolocate
                 }
             }
 
-            Console.WriteLine("\r\n\r\n");
+            _logger.Info("\r\n\r\n");
 
             if (uniqueIps.Count <= 0)
             {
-                Console.WriteLine("No unique, geolocated IPs found!");
+                _logger.Info("No unique, geolocated IPs found!");
                 return;
             }
 
-            Console.WriteLine("Saving unique IPs to \'!UniqueIPs.tsv\'");
+            _logger.Info("Saving unique IPs to \'!UniqueIPs.tsv\'");
             using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.tsv"))))
             {
                 foreach (var uniqueIp in uniqueIps)
