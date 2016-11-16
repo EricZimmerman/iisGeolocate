@@ -1,7 +1,7 @@
 <SmartAssemblyProject ProjectId="{671982ff-7202-4f47-9493-141b4522a20f}" Version="2.0">
     <MainAssemblyFileName>.\iisGeolocate\bin\Release\iisGeolocate.exe</MainAssemblyFileName>
     <FriendlyName>iisGeolocate</FriendlyName>
-    <CompanyName>[Unknown company]</CompanyName>
+    <CompanyName>Eric Zimmerman 501-313-3778</CompanyName>
     <Configuration Name="Release">
         <Options>
             <ExceptionReporting EmailToBeNotified="eric@mikestammer.com" ReportExceptions="1" Template="res:{SmartExceptions}.1033.dll" />
@@ -172,6 +172,14 @@
             </Assembly>
             <Assembly AssemblyName="SmartAssembly.AssemblyResolver, Culture=neutral, PublicKeyToken=7f465a1c156d4d57">
                 <Merging />
+            </Assembly>
+            <Assembly AssemblyName="NLog, Culture=neutral, PublicKeyToken=5120e14c03d0593c">
+                <Merging />
+                <Embedding Embed="1" />
+            </Assembly>
+            <Assembly AssemblyName="FluentCommandLineParser, Culture=neutral, PublicKeyToken=null">
+                <Merging />
+                <Embedding Embed="1" />
             </Assembly>
         </Assemblies>
     </Configuration>
