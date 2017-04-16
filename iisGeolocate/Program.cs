@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using Exceptionless;
 using Fclp;
 using MaxMind.GeoIP2;
 using MaxMind.GeoIP2.Exceptions;
@@ -45,7 +46,7 @@ namespace iisGeolocate
 
         private static void Main(string[] args)
         {
-          
+            ExceptionlessClient.Default.Startup("ujUuuNlhz7ZQKoDxBohBMKmPxErDgbFmNdYvPRHM");
 
 
 
@@ -56,7 +57,7 @@ namespace iisGeolocate
                 IsCaseSensitive = false
             };
             _fluentCommandLineParser.Setup(arg => arg.LogDirectory)
-                .As('L')
+                .As('d')
                 .WithDescription(
                     "The directory that contains IIS logs. If not specified, defaults to same directory as executable")
                 .SetDefault(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
