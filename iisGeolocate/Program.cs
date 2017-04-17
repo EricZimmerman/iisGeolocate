@@ -147,7 +147,7 @@ namespace iisGeolocate
                             {
                                 if (line.StartsWith("#Fields"))
                                 {
-                                    line = line.Trim() + " GeoCountry GeoCity";
+                                    line = line.Trim() + " GeoCity GeoCountry";
                                     var fields = line.Split(' ');
                                     var pos = 0;
                                     _logger.Info("Looking for/verifying 'c-ip' field position...");
