@@ -24,13 +24,12 @@ namespace iisGeolocate
           
         }
 
-
         private static void SetupNLog()
         {
             var config = new LoggingConfiguration();
             var loglevel = LogLevel.Info;
 
-            var layout = @"${longdate} | ${message}";
+            var layout = @"${message}";
 
             var consoleTarget = new ColoredConsoleTarget();
 
@@ -47,8 +46,6 @@ namespace iisGeolocate
         private static void Main(string[] args)
         {
             ExceptionlessClient.Default.Startup("ujUuuNlhz7ZQKoDxBohBMKmPxErDgbFmNdYvPRHM");
-
-
 
             SetupNLog();
 
@@ -69,7 +66,7 @@ namespace iisGeolocate
                 "\r\n\r\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)" +
                 "\r\nhttps://github.com/EricZimmerman/iisGeolocate";
 
-            _fluentCommandLineParser.SetupHelp("?", "help")
+            _fluentCommandLineParser.SetupHelp("?", "help", "h")
                 .WithHeader(header)
                 .Callback(text => _logger.Info(text + "\r\n" + ""));
 
@@ -121,14 +118,27 @@ namespace iisGeolocate
 
             var cIpSlot = -1;
 
-            if (File.Exists("GeoLite2-City.mmdb") == false)
+            if (File.Exists("GeoLite2-City.mmdb") == false && File.Exists("GeoIP2-City.mmdb") == false)
             {
-                _logger.Fatal("'GeoLite2-City.mmdb' not found! Cannot continue. Exiting");
+                _logger.Fatal("'GeoLite2-City.mmdb' or 'GeoIP2-City.mmdb' missing! Cannot continue. Exiting");
                 return;
             }
 
+            var dbName = "GeoLite2-City.mmdb";
 
-            using (var reader = new DatabaseReader("GeoLite2-City.mmdb"))
+            if (File.Exists("GeoIP2-City.mmdb"))
+            {
+                _logger.Info($"Found 'GeoIP2-City.mmdb', so using that vs lite...");
+                dbName = "GeoIP2-City.mmdb";
+            }
+            
+            //GeoIP2-City.mmdb
+
+            _logger.Warn(
+                $"NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with 'fe80'");
+
+
+            using (var reader = new DatabaseReader(dbName))
             {
                 foreach (var file in logFiles)
                 {
@@ -142,6 +152,12 @@ namespace iisGeolocate
                         using (var instream = File.OpenText(file))
                         {
                             var line = instream.ReadLine();
+
+                            if (uniqueIps.Count > 0)
+                            {
+                                _logger.Info($"Unique IPs found: {uniqueIps.Count:N0}");
+                                return;
+                            }
 
                             while (line != null)
                             {
@@ -172,8 +188,24 @@ namespace iisGeolocate
                                     var segs = line.Split(' ');
                                     var ip = segs[cIpSlot];
 
-                                    try
+                                    if (ip.StartsWith("fe80"))
+
+                                        try
                                     {
+                                        var segs2 = ip.Split('.');
+                                        if (segs2.Length> 1)
+                                        {
+                                            var first = int.Parse(segs2[0]);
+                                            var second = int.Parse(segs2[1]);
+
+                                            if (first >= 224 || first == 10 || first == 192 && second == 168 || 
+                                                first == 172 && second >= 16 && second <= 31)
+                                            {
+                                            
+                                                continue;
+                                            }
+                                        }
+
                                         var city = reader.City(ip);
                                         geoCity = city.City?.Name?.Replace(' ', '_');
 
@@ -184,8 +216,9 @@ namespace iisGeolocate
                                             uniqueIps.Add(ip, $"{geoCity}, {geoCountry}");
                                         }
                                     }
-                                    catch (AddressNotFoundException)
+                                    catch (AddressNotFoundException an)
                                     {
+                                        
                                     }
                                     catch (Exception ex)
                                     {
@@ -194,9 +227,8 @@ namespace iisGeolocate
                                         geoCountry = "Country error: (See city error)";
                                     }
 
-                                    line = line + $" {geoCity} {geoCountry}";
+                                    line += $" {geoCity} {geoCountry}";
                                 }
-
 
                                 outstream.WriteLine(line);
 
@@ -213,7 +245,7 @@ namespace iisGeolocate
 
             if (uniqueIps.Count <= 0)
             {
-                _logger.Info("No unique, geolocated IPs found!");
+                _logger.Info("No unique, geolocated IPs found!\r\n");
                 return;
             }
 
