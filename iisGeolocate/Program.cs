@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using CsvHelper;
 using Exceptionless;
 using Fclp;
 using MaxMind.GeoIP2;
@@ -94,7 +96,7 @@ namespace iisGeolocate
                 Directory.CreateDirectory(outDir);
             }
 
-            var uniqueIps = new Dictionary<string, string>();
+            var uniqueIps = new Dictionary<string, UniqueIp>();
 
             var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log");
 
@@ -137,103 +139,135 @@ namespace iisGeolocate
                     var baseFilename = Path.GetFileName(file);
                     var outFilename = Path.Combine(outDir, baseFilename);
 
-                    using (var outstream = new StreamWriter(File.Open(outFilename,FileMode.OpenOrCreate,FileAccess.Write,FileShare.Read)))
+                    using (var outstream = new StreamWriter(File.Open(outFilename, FileMode.OpenOrCreate,
+                        FileAccess.Write, FileShare.Read)))
                     {
+                        if (uniqueIps.Count > 0)
+                        {
+                            _logger.Info($"Unique IPs found so far: {uniqueIps.Count:N0}");
+                            return;
+                        }
 
                         using (var instream = File.OpenText(file))
                         {
-                            var line = instream.ReadLine();
+                            var csv = new CsvReader(instream);
+                            csv.Configuration.Delimiter = " ";
+                            csv.Configuration.HasHeaderRecord = false;
 
-                            if (uniqueIps.Count > 0)
+                            csv.Read();
+
+                            string[] fields = null;
+                            dynamic currentRecord;
+
+                            var rawLine = csv.Context.RawRecord.Trim();
+
+                            while (rawLine.StartsWith("#"))
                             {
-                                _logger.Info($"Unique IPs found: {uniqueIps.Count:N0}");
-                                return;
+                                if (rawLine.StartsWith("#Fields"))
+                                {
+                                    fields = rawLine.Split(' ').Skip(1).ToArray();
+
+                                    rawLine += " GeoCity GeoCountry";
+                                }
+
+                                outstream.WriteLine(rawLine);
+
+                                csv.Read();
+
+                                rawLine = csv.Context.RawRecord.Trim();
                             }
 
-                            while (line != null)
+                            if (fields == null)
                             {
-                                //                                if (line.StartsWith("#Fields"))
-//                                {
-//                                    line = line.Trim() + " GeoCity GeoCountry";
-//                                    var fields = line.Split(' ');
-//                                    var pos = 0;
-//                                    _logger.Info(
-//                                        $"Looking for/verifying '{_fluentCommandLineParser.Object.FieldName}' field position...");
-//                                    foreach (var field in fields)
-//                                    {
-//                                        if (field.Equals(_fluentCommandLineParser.Object.FieldName,
-//                                            StringComparison.OrdinalIgnoreCase))
-//                                        {
-//                                            dataSlot = pos - 1; //account for #Fields: 
-//
-//                                            _logger.Info(
-//                                                $"Found '{_fluentCommandLineParser.Object.FieldName}' field position in column '{dataSlot}'!");
-//                                            break;
-//                                        }
-//
-//                                        pos += 1;
-//                                    }
-//                                }
+                                _logger.Warn("Unable to find 'Fields' info in file. Skipping...");
+                                continue;
+                            }
+
+                            var pos = 0;
+                            _logger.Info(
+                                $"Looking for/verifying '{_fluentCommandLineParser.Object.FieldName}' field position...");
+                            foreach (var field in fields)
+                            {
+                                if (field.Equals(_fluentCommandLineParser.Object.FieldName,
+                                    StringComparison.OrdinalIgnoreCase))
+                                {
+                                    dataSlot = pos;
+
+                                    _logger.Info(
+                                        $"Found '{_fluentCommandLineParser.Object.FieldName}' field position in column '{dataSlot}'!");
+                                    break;
+                                }
+
+                                pos += 1;
+                            }
+
+
+                            //we are at the actual data now
+
+                            while (csv.Read())
+                            {
+                                rawLine = csv.Context.RawRecord.Trim();
+
+                                currentRecord = csv.GetRecord<dynamic>();
+
+                                var rec = (IDictionary<string, object>) currentRecord;
+
+                                var key = $"Field{dataSlot + 1}"; //fields start at 1
+
+                                var ipAddress = ((string) rec[key]).Replace("\"", "");
+
+                                if (ipAddress.StartsWith("fe80"))
+                                {
+                                    continue;
+                                }
+
+                                //do ip work
 
                                 var geoCity = "NA";
                                 var geoCountry = "NA";
 
-                                if (line.StartsWith("#") == false)
+                                try
                                 {
-                                    var segs = line.Split(' ');
-
-                                    dataSlot = segs.Length - 1;
-
-                                    var ip = segs[dataSlot].Replace("\"","");
-
-                                    if (ip.StartsWith("fe80"))
+                                    var segs2 = ipAddress.Split('.');
+                                    if (segs2.Length > 1)
                                     {
-                                        continue;
-                                    }
+                                        var first = int.Parse(segs2[0]);
+                                        var second = int.Parse(segs2[1]);
 
-                                    {
-                                        try
+                                        if (first >= 224 || first == 10 || first == 192 && second == 168 ||
+                                            first == 172 && second >= 16 && second <= 31)
                                         {
-                                            var segs2 = ip.Split('.');
-                                            if (segs2.Length > 1)
-                                            {
-                                                var first = int.Parse(segs2[0]);
-                                                var second = int.Parse(segs2[1]);
-
-                                                if (first >= 224 || first == 10 || first == 192 && second == 168 ||
-                                                    first == 172 && second >= 16 && second <= 31)
-                                                {
-                                                    continue;
-                                                }
-                                            }
-
-                                            var city = reader.City(ip);
-                                            geoCity = city.City?.Name?.Replace(' ', '_');
-
-                                            geoCountry = city.Country.Name.Replace(' ', '_');
-
-                                            if (uniqueIps.ContainsKey(ip) == false)
-                                            {
-                                                uniqueIps.Add(ip, $"{geoCity}, {geoCountry}");
-                                            }
-                                        }
-                                        catch (AddressNotFoundException an)
-                                        {
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            _logger.Info($"Error: {ex.Message} for line: {line}");
-                                            geoCity = $"City error: {ex.Message}";
-                                            geoCountry = "Country error: (See city error)";
+                                            continue;
                                         }
                                     }
 
-                                    line += $" {geoCity} {geoCountry}";
+                                    var city = reader.City(ipAddress);
+                                    geoCity = city.City?.Name?.Replace(' ', '_');
+
+                                    geoCountry = city.Country.Name.Replace(' ', '_');
+
+                                    if (uniqueIps.ContainsKey(ipAddress) == false)
+                                    {
+                                        var ui = new UniqueIp {City = city.City?.Name};
+                                        ui.Country = city.Country.Name;
+                                        ui.IpAddress = ipAddress;
+
+                                        uniqueIps.Add(ipAddress, ui);
+                                    }
+                                }
+                                catch (AddressNotFoundException an)
+                                {
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.Info($"Error: {ex.Message} for line: {rawLine}");
+                                    geoCity = $"City error: {ex.Message}";
+                                    geoCountry = "Country error: (See city error)";
                                 }
 
-                                outstream.WriteLine(line);
+                                rawLine += $" {geoCity} {geoCountry}";
 
-                                line = instream.ReadLine();
+                                outstream.WriteLine(rawLine);
                             }
                         }
 
@@ -242,7 +276,7 @@ namespace iisGeolocate
                 }
             }
 
-            _logger.Info("\r\n\r\n");
+            _logger.Info("");
 
             if (uniqueIps.Count <= 0)
             {
@@ -250,18 +284,24 @@ namespace iisGeolocate
                 return;
             }
 
-            _logger.Info("Saving unique IPs to \'!UniqueIPs.tsv\'");
-            using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.tsv"))))
+            _logger.Info("Saving unique IPs to '!UniqueIPs.csv'");
+            using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.csv"))))
             {
-                foreach (var uniqueIp in uniqueIps)
-                {
-                    var line = $"{uniqueIp.Key}\t{uniqueIp.Value}";
-
-                    uniqOut.WriteLine(line);
-                }
-
+                var csw = new CsvWriter(uniqOut);
+                csw.WriteHeader<UniqueIp>();
+                csw.NextRecord();
+                csw.WriteRecords(uniqueIps.Values);
                 uniqOut.Flush();
             }
+
+            _logger.Info("");
+        }
+
+        internal class UniqueIp
+        {
+            public string IpAddress { get; set; }
+            public string City { get; set; }
+            public string Country { get; set; }
         }
 
         internal class ApplicationArguments
