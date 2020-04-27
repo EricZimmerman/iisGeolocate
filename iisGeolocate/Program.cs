@@ -145,7 +145,7 @@ namespace iisGeolocate
                         if (uniqueIps.Count > 0)
                         {
                             _logger.Info($"Unique IPs found so far: {uniqueIps.Count:N0}");
-                            return;
+                            //return;
                         }
 
                         using (var instream = File.OpenText(file))
@@ -153,6 +153,7 @@ namespace iisGeolocate
                             var csv = new CsvReader(instream);
                             csv.Configuration.Delimiter = " ";
                             csv.Configuration.HasHeaderRecord = false;
+                            csv.Configuration.BadDataFound = null;
 
                             csv.Read();
 
@@ -207,6 +208,11 @@ namespace iisGeolocate
                             while (csv.Read())
                             {
                                 rawLine = csv.Context.RawRecord.Trim();
+                                
+                                if (rawLine.StartsWith("#"))
+                                {
+                                    continue;
+                                }
 
                                 currentRecord = csv.GetRecord<dynamic>();
 
