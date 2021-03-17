@@ -87,6 +87,8 @@ namespace iisGeolocate
 
             var result = _fluentCommandLineParser.Parse(args);
 
+            var baseDir =Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
             if (result.HelpCalled)
             {
                 return;
@@ -117,6 +119,25 @@ namespace iisGeolocate
             _logger.Info(header);
             _logger.Info("");
 
+            _fluentCommandLineParser.Object.LogDirectory = Path.GetFullPath(_fluentCommandLineParser.Object.LogDirectory);
+            _fluentCommandLineParser.Object.CsvDirectory = Path.GetFullPath(_fluentCommandLineParser.Object.CsvDirectory);
+
+            var litePath = Path.Combine(baseDir, "GeoLite2-City.mmdb");
+            var cityPath = Path.Combine(baseDir, "GeoIP2-City.mmdb");
+
+            if (File.Exists(litePath) == false && File.Exists(cityPath) == false)
+            {
+                _logger.Fatal("'GeoLite2-City.mmdb' or 'GeoIP2-City.mmdb' missing! Cannot continue. Exiting");
+                return;
+            }
+
+            var dbName = litePath;
+
+            if (File.Exists(cityPath))
+            {
+                _logger.Info("Found 'GeoIP2-City.mmdb', so using that vs lite...");
+                dbName = cityPath;
+            }
 
             var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log", SearchOption.AllDirectories);
 
@@ -128,20 +149,6 @@ namespace iisGeolocate
             {
                 _logger.Fatal("No files ending in .log found. Exiting...");
                 return;
-            }
-
-            if (File.Exists("GeoLite2-City.mmdb") == false && File.Exists("GeoIP2-City.mmdb") == false)
-            {
-                _logger.Fatal("'GeoLite2-City.mmdb' or 'GeoIP2-City.mmdb' missing! Cannot continue. Exiting");
-                return;
-            }
-
-            var dbName = "GeoLite2-City.mmdb";
-
-            if (File.Exists("GeoIP2-City.mmdb"))
-            {
-                _logger.Info("Found 'GeoIP2-City.mmdb', so using that vs lite...");
-                dbName = "GeoIP2-City.mmdb";
             }
 
             if (Directory.Exists(_fluentCommandLineParser.Object.CsvDirectory) == false)
