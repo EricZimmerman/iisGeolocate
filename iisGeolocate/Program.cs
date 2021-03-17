@@ -9,6 +9,7 @@ using CsvHelper;
 using CsvHelper.Configuration;
 using Exceptionless;
 using Fclp;
+using Fclp.Internals.Extensions;
 using MaxMind.GeoIP2;
 using MaxMind.GeoIP2.Exceptions;
 using NLog;
@@ -21,6 +22,7 @@ namespace iisGeolocate
     {
         private static Logger _logger;
         private static FluentCommandLineParser<ApplicationArguments> _fluentCommandLineParser;
+        private static Dictionary<string, UniqueIp> _uniqueIps;
 
         private static void SetupNLog()
         {
@@ -54,14 +56,18 @@ namespace iisGeolocate
             _fluentCommandLineParser.Setup(arg => arg.LogDirectory)
                 .As('d')
                 .WithDescription(
-                    "The directory that contains IIS logs. If not specified, defaults to same directory as executable")
-                .SetDefault(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location));
+                    "The directory that contains IIS logs. This will be recursively searched for *.log files");
 
-            _fluentCommandLineParser.Setup(arg => arg.FieldName)
-                .As('f')
+            _fluentCommandLineParser.Setup(arg => arg.CsvDirectory)
+                .As("csv")
                 .WithDescription(
-                    "The field name to find to do the geolocation on. Default is 'c-ip'")
-                .SetDefault("c-ip");
+                    "The directory to write results to. Required");
+
+            // _fluentCommandLineParser.Setup(arg => arg.FieldName)
+            //     .As('f')
+            //     .WithDescription(
+            //         "The field name to find to do the geolocation on. Default is 'c-ip'")
+            //     .SetDefault("c-ip");
 
             _logger = LogManager.GetCurrentClassLogger();
 
@@ -91,15 +97,16 @@ namespace iisGeolocate
                 return;
             }
 
-            var outDirName = "out";
-            var outDir = Path.Combine(_fluentCommandLineParser.Object.LogDirectory, outDirName);
-
-            if (Directory.Exists(outDir) == false)
+            if (_fluentCommandLineParser.Object.LogDirectory.IsNullOrEmpty() ||
+                _fluentCommandLineParser.Object.CsvDirectory.IsNullOrEmpty())
             {
-                Directory.CreateDirectory(outDir);
+                _fluentCommandLineParser.HelpOption.ShowHelp(_fluentCommandLineParser.Options);
+
+                _logger.Warn("Both -d and --csv are required. Exiting");
+                return;
             }
 
-            var uniqueIps = new Dictionary<string, UniqueIp>();
+            _uniqueIps = new Dictionary<string, UniqueIp>();
 
             var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log",SearchOption.AllDirectories);
 
@@ -112,9 +119,7 @@ namespace iisGeolocate
                 _logger.Fatal("No files ending in .log found. Exiting...");
                 return;
             }
-
-            var dataSlot = -1;
-
+            
             if (File.Exists("GeoLite2-City.mmdb") == false && File.Exists("GeoIP2-City.mmdb") == false)
             {
                 _logger.Fatal("'GeoLite2-City.mmdb' or 'GeoIP2-City.mmdb' missing! Cannot continue. Exiting");
@@ -129,17 +134,25 @@ namespace iisGeolocate
                 dbName = "GeoIP2-City.mmdb";
             }
 
+
+            if (Directory.Exists(_fluentCommandLineParser.Object.CsvDirectory) == false)
+            {
+                Directory.CreateDirectory(_fluentCommandLineParser.Object.CsvDirectory);
+            }
+
             _logger.Warn(
                 "NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with 'fe80'");
 
+            var badDataFile = Path.Combine(_fluentCommandLineParser.Object.CsvDirectory, "BadDatarows_REVIEW_ME.txt");
+            var badStream = new StreamWriter(badDataFile);
+
+            _logger.Info($"All malformed data rows will be IGNORED but written to '{badDataFile}'. REVIEW THIS!");
 
             using (var reader = new DatabaseReader(dbName))
             {
                 foreach (var file in logFiles)
                 {
                     _logger.Warn($"Opening '{file}'");
-
-
 
                     var fileChunks = new Dictionary<string, List<string>>();
 
@@ -157,6 +170,9 @@ namespace iisGeolocate
                                 {
                                     var headerRow = line.Substring(9);
 
+                                    //need to change to underscore so the dynamic object knows how to get data out vs trying to subtract c - ip. stupid microsoft and these names
+                                    headerRow = headerRow.Replace("-", "_");
+
                                     if (headerRow == lastHeaderRow)
                                     {
                                         //the second header is the same, so keep appending
@@ -168,7 +184,7 @@ namespace iisGeolocate
                                         //new data based on header
 
                                         lastHeaderRow = headerRow;
-
+                                        
                                         fileChunks.Add(headerRow,new List<string>());
 
                                         headerRow = $"{headerRow} GeoCity GeoCountry";
@@ -192,15 +208,48 @@ namespace iisGeolocate
 
                     }
                     
-                    
-                    Console.WriteLine($"fileChunks count: {fileChunks.Count}");
-                    
-                    
                     //at this point, iterate all fileChunks and make it a csv, do lookup, update extra fields, write it out
+
+
+                    _logger.Info($"\tLog chunks found in '{file}': {fileChunks.Count}. Processing chunks...");
+                    foreach (var fileChunk in fileChunks)
+                    {
+                        var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
+                        conf.Delimiter = " ";
+                        conf.BadDataFound = rawData =>
+                        {
+                            _logger.Warn($"Bad data found! Ignoring!!! Row: '{rawData.RawRecord.Trim()}'");
+                            badStream.Write(rawData.RawRecord);
+                        };
+
+                        var aa = new StringReader(string.Join("\r\n", fileChunk.Value));
+                        var csv = new CsvReader(aa,conf);
+                        
+                        csv.Read();
+                        csv.ReadHeader();
+                        
+                        var rows = csv.GetRecords<dynamic>();
+
+                        foreach (var row in rows)
+                        {
+                           string ip = row.c_ip;
+
+                           if (ip == "127.0.0.1" || ip == "::1" || ip.StartsWith("10.") || ip.StartsWith("192.168"))
+                           {
+                               row.GeoCity = "NA";
+                               row.GeoCountry = "NA";
+                               continue;
+                           }
+
+                           var gr = GetIpInfo(ip,reader);
+                            
+                           row.GeoCity = gr.City;
+                           row.GeoCountry = gr.Country;
+                        }
+
+                    }
                     
-                    
-                    
-                    
+                    badStream.Flush();
                     
                     
                     // //OLD
@@ -350,27 +399,73 @@ namespace iisGeolocate
                     //
                     // //END OLD
                 }
+
+                badStream.Flush();
+                badStream.Close();
             }
 
             _logger.Info("");
 
-            if (uniqueIps.Count <= 0)
+            if (_uniqueIps.Count <= 0)
             {
                 _logger.Info("No unique, geolocated IPs found!\r\n");
                 return;
             }
 
             _logger.Info("Saving unique IPs to '!UniqueIPs.csv'");
-            using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(outDir, "!UniqueIPs.csv"))))
+
+            using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(_fluentCommandLineParser.Object.CsvDirectory, "!UniqueIPs.csv"))))
             {
                 var csw = new CsvWriter(uniqOut,CultureInfo.CurrentCulture);
                 csw.WriteHeader<UniqueIp>();
                 csw.NextRecord();
-                csw.WriteRecords(uniqueIps.Values);
+                csw.WriteRecords(_uniqueIps.Values);
                 uniqOut.Flush();
             }
 
             _logger.Info("");
+        }
+
+        public static GeoResults GetIpInfo(string ip, DatabaseReader reader)
+        {
+            var gr = new GeoResults();
+            gr.City = "NA";
+            gr.Country = "NA";
+
+            try
+            {
+                var city = reader.City(ip);
+                gr.City = city.City?.Name?.Replace(' ', '_');
+                gr.Country = city.Country?.Name?.Replace(' ', '_');
+                
+
+                if (_uniqueIps.ContainsKey(ip) == false)
+                {
+                    var ui = new UniqueIp {City = city.City?.Name};
+                    ui.Country = city.Country.Name;
+                    ui.IpAddress = ip;
+                
+                    _uniqueIps.Add(ip, ui);
+                }
+            }
+
+            catch (AddressNotFoundException a)
+            {
+                //eat it
+   
+            }
+            catch (Exception ex)
+            {
+                _logger.Info($"Error: {ex.Message} for ip: {ip}");
+            }
+
+            return gr;
+        }
+
+        internal class GeoResults
+        {
+            public string City { get; set; }
+            public string Country { get; set; }
         }
 
         internal class UniqueIp
@@ -384,6 +479,7 @@ namespace iisGeolocate
         {
             public string LogDirectory { get; set; }
             public string FieldName { get; set; }
+            public string CsvDirectory { get; set; }
         }
     }
 }
