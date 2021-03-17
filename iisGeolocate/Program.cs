@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -69,8 +68,6 @@ namespace iisGeolocate
                     "When true, do NOT show bad lines to console (they are still logged to a file). Default is FALSE").SetDefault(false);
 
 
-            
-
             // _fluentCommandLineParser.Setup(arg => arg.FieldName)
             //     .As('f')
             //     .WithDescription(
@@ -116,12 +113,12 @@ namespace iisGeolocate
 
             _uniqueIps = new Dictionary<string, UniqueIp>();
 
-            
+
             _logger.Info(header);
             _logger.Info("");
 
 
-            var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log",SearchOption.AllDirectories);
+            var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log", SearchOption.AllDirectories);
 
             if (logFiles.Length > 0)
             {
@@ -132,7 +129,7 @@ namespace iisGeolocate
                 _logger.Fatal("No files ending in .log found. Exiting...");
                 return;
             }
-            
+
             if (File.Exists("GeoLite2-City.mmdb") == false && File.Exists("GeoIP2-City.mmdb") == false)
             {
                 _logger.Fatal("'GeoLite2-City.mmdb' or 'GeoIP2-City.mmdb' missing! Cannot continue. Exiting");
@@ -147,12 +144,10 @@ namespace iisGeolocate
                 dbName = "GeoIP2-City.mmdb";
             }
 
-
             if (Directory.Exists(_fluentCommandLineParser.Object.CsvDirectory) == false)
             {
                 Directory.CreateDirectory(_fluentCommandLineParser.Object.CsvDirectory);
             }
-
 
             _logger.Warn(
                 "NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with 'fe80'");
@@ -176,7 +171,7 @@ namespace iisGeolocate
 
                         string lastHeaderRow = null;
 
-                        while (line!=null)
+                        while (line != null)
                         {
                             if (line.StartsWith("#"))
                             {
@@ -193,35 +188,32 @@ namespace iisGeolocate
                                         line = instream.ReadLine();
                                         continue;
                                     }
-                                    
-                                    {
-                                        //new data based on header
 
-                                        lastHeaderRow = headerRow;
-                                        
-                                        fileChunks.Add(headerRow,new List<string>());
+                                    //new data based on header
+                                   
+                                    lastHeaderRow = headerRow;
 
-                                        headerRow = $"{headerRow} GeoCity GeoCountry";
-                                    }
-                                    
+                                    fileChunks.Add(headerRow, new List<string>());
+
+                                    headerRow = $"{headerRow} GeoCity GeoCountry";
+
                                     fileChunks[lastHeaderRow].Add(headerRow);
-                                    
+
                                     line = instream.ReadLine();
                                     continue;
                                 }
-                                
+
                                 line = instream.ReadLine();
                                 continue;
                             }
-                            
+
                             //this is where data needs to be persisted for later
                             fileChunks[lastHeaderRow].Add(line);
-                            
+
                             line = instream.ReadLine();
                         }
-
                     }
-                    
+
                     //at this point, iterate all fileChunks and make it a csv, do lookup, update extra fields, write it out
 
                     var ts = DateTimeOffset.UtcNow;
@@ -233,7 +225,7 @@ namespace iisGeolocate
                         counter += 1;
 
                         _logger.Info($"\tFound {fileChunk.Value.Count:N0} rows in chunk {counter}");
-                      
+
                         //outcsv stuff
 
                         var logBaseName = Path.GetFileNameWithoutExtension(file);
@@ -242,10 +234,7 @@ namespace iisGeolocate
 
                         var csvOut = new CsvWriter(new StreamWriter(fout), CultureInfo.CurrentCulture);
 
-
                         //outcsv stuff
-
-
 
                         var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
                         conf.Delimiter = " ";
@@ -255,195 +244,43 @@ namespace iisGeolocate
                             if (_fluentCommandLineParser.Object.SuppressBadLines)
                             {
                                 return;
-                                
                             }
+
                             _logger.Warn($"Bad data found! Ignoring!!! Row: '{rawData.RawRecord.Trim()}'");
-                         
                         };
 
                         var aa = new StringReader(string.Join("\r\n", fileChunk.Value));
-                        var csv = new CsvReader(aa,conf);
-                        
+                        var csv = new CsvReader(aa, conf);
+
                         csv.Read();
                         csv.ReadHeader();
 
-                      
-                        
                         var rows = csv.GetRecords<dynamic>().ToList();
 
                         foreach (var row in rows)
                         {
-                           string ip = row.c_ip;
+                            string ip = row.c_ip;
 
-                           if (ip == "127.0.0.1" || ip == "::1" || ip.StartsWith("10.") || ip.StartsWith("192.168"))
-                           {
-                               row.GeoCity = "NA";
-                               row.GeoCountry = "NA";
-                               continue;
-                           }
+                            if (ip == "127.0.0.1" || ip == "::1" || ip.StartsWith("10.") || ip.StartsWith("192.168"))
+                            {
+                                row.GeoCity = "NA";
+                                row.GeoCountry = "NA";
+                                continue;
+                            }
 
-                           var gr = GetIpInfo(ip,reader);
-                            
-                           row.GeoCity = gr.City;
-                           row.GeoCountry = gr.Country;
+                            var gr = GetIpInfo(ip, reader);
+
+                            row.GeoCity = gr.City;
+                            row.GeoCountry = gr.Country;
                         }
 
                         csvOut.WriteRecords(rows);
 
                         csvOut.Flush();
                         csvOut.Dispose();
-
                     }
-                    
+
                     badStream.Flush();
-                    
-                    
-                    // //OLD
-                    //
-                    // var baseFilename = Path.GetFileName(file);
-                    // var outFilename = Path.Combine(outDir, baseFilename);
-                    //
-                    // using (var outstream = new StreamWriter(File.Open(outFilename, FileMode.OpenOrCreate,
-                    //     FileAccess.Write, FileShare.Read)))
-                    // {
-                    //     if (uniqueIps.Count > 0)
-                    //     {
-                    //         _logger.Info($"Unique IPs found so far: {uniqueIps.Count:N0}");
-                    //         return;
-                    //     }
-                    //
-                    //     using (var instream = File.OpenText(file))
-                    //     {
-                    //         var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
-                    //         conf.Delimiter = " ";
-                    //
-                    //         var csv = new CsvReader(instream,conf);
-                    //         //csv.Configuration.Delimiter = " ";
-                    //         //csv.Configuration.HasHeaderRecord = false;
-                    //
-                    //         csv.Read();
-                    //
-                    //         string[] fields = null;
-                    //         dynamic currentRecord;
-                    //
-                    //         var rawLine = csv.Context.Parser.RawRecord.Trim();
-                    //
-                    //         while (rawLine.StartsWith("#"))
-                    //         {
-                    //             if (rawLine.StartsWith("#Fields"))
-                    //             {
-                    //                 fields = rawLine.Split(' ').Skip(1).ToArray();
-                    //
-                    //                 rawLine += " GeoCity GeoCountry";
-                    //             }
-                    //
-                    //             outstream.WriteLine(rawLine);
-                    //
-                    //             csv.Read();
-                    //
-                    //             rawLine = csv.Context.Parser.RawRecord.Trim();
-                    //         }
-                    //
-                    //         if (fields == null)
-                    //         {
-                    //             _logger.Warn("Unable to find 'Fields' info in file. Skipping...");
-                    //             continue;
-                    //         }
-                    //
-                    //         var pos = 0;
-                    //         _logger.Info(
-                    //             $"Looking for/verifying '{_fluentCommandLineParser.Object.FieldName}' field position...");
-                    //         foreach (var field in fields)
-                    //         {
-                    //             if (field.Equals(_fluentCommandLineParser.Object.FieldName,
-                    //                 StringComparison.OrdinalIgnoreCase))
-                    //             {
-                    //                 dataSlot = pos;
-                    //
-                    //                 _logger.Info(
-                    //                     $"Found '{_fluentCommandLineParser.Object.FieldName}' field position in column '{dataSlot}'!");
-                    //                 break;
-                    //             }
-                    //
-                    //             pos += 1;
-                    //         }
-                    //
-                    //         
-                    //
-                    //
-                    //         //we are at the actual data now
-                    //
-                    //         while (csv.Read())
-                    //         {
-                    //             rawLine = csv.Context.Parser.RawRecord.Trim();
-                    //
-                    //             currentRecord = csv.GetRecord<dynamic>();
-                    //
-                    //             var rec = (IDictionary<string, object>) currentRecord;
-                    //
-                    //             var key = $"Field{dataSlot + 1}"; //fields start at 1
-                    //
-                    //             var ipAddress = ((string) rec[key]).Replace("\"", "");
-                    //
-                    //             if (ipAddress.StartsWith("fe80"))
-                    //             {
-                    //                 continue;
-                    //             }
-                    //
-                    //             //do ip work
-                    //
-                    //             var geoCity = "NA";
-                    //             var geoCountry = "NA";
-                    //
-                    //             try
-                    //             {
-                    //                 var segs2 = ipAddress.Split('.');
-                    //                 if (segs2.Length > 1)
-                    //                 {
-                    //                     var first = int.Parse(segs2[0]);
-                    //                     var second = int.Parse(segs2[1]);
-                    //
-                    //                     if (first >= 224 || first == 10 || first == 192 && second == 168 ||
-                    //                         first == 172 && second >= 16 && second <= 31)
-                    //                     {
-                    //                         continue;
-                    //                     }
-                    //                 }
-                    //
-                    //                 var city = reader.City(ipAddress);
-                    //                 geoCity = city.City?.Name?.Replace(' ', '_');
-                    //
-                    //                 geoCountry = city.Country.Name.Replace(' ', '_');
-                    //
-                    //                 if (uniqueIps.ContainsKey(ipAddress) == false)
-                    //                 {
-                    //                     var ui = new UniqueIp {City = city.City?.Name};
-                    //                     ui.Country = city.Country.Name;
-                    //                     ui.IpAddress = ipAddress;
-                    //
-                    //                     uniqueIps.Add(ipAddress, ui);
-                    //                 }
-                    //             }
-                    //             catch (AddressNotFoundException an)
-                    //             {
-                    //             }
-                    //             catch (Exception ex)
-                    //             {
-                    //                 _logger.Info($"Error: {ex.Message} for line: {rawLine}");
-                    //                 geoCity = $"City error: {ex.Message}";
-                    //                 geoCountry = "Country error: (See city error)";
-                    //             }
-                    //
-                    //             rawLine += $" {geoCity} {geoCountry}";
-                    //
-                    //             outstream.WriteLine(rawLine);
-                    //         }
-                    //     }
-                    //
-                    //     outstream.Flush();
-                    // }
-                    //
-                    // //END OLD
                 }
 
                 badStream.Flush();
@@ -462,7 +299,7 @@ namespace iisGeolocate
 
             using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(_fluentCommandLineParser.Object.CsvDirectory, "!UniqueIPs.csv"))))
             {
-                var csw = new CsvWriter(uniqOut,CultureInfo.CurrentCulture);
+                var csw = new CsvWriter(uniqOut, CultureInfo.CurrentCulture);
                 csw.WriteHeader<UniqueIp>();
                 csw.NextRecord();
                 csw.WriteRecords(_uniqueIps.Values);
@@ -483,14 +320,14 @@ namespace iisGeolocate
                 var city = reader.City(ip);
                 gr.City = city.City?.Name?.Replace(' ', '_');
                 gr.Country = city.Country?.Name?.Replace(' ', '_');
-                
+
 
                 if (_uniqueIps.ContainsKey(ip) == false)
                 {
                     var ui = new UniqueIp {City = city.City?.Name};
                     ui.Country = city.Country.Name;
                     ui.IpAddress = ip;
-                
+
                     _uniqueIps.Add(ip, ui);
                 }
             }
@@ -498,7 +335,6 @@ namespace iisGeolocate
             catch (AddressNotFoundException a)
             {
                 //eat it
-   
             }
             catch (Exception ex)
             {
