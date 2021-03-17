@@ -63,6 +63,14 @@ namespace iisGeolocate
                 .WithDescription(
                     "The directory to write results to. Required");
 
+            _fluentCommandLineParser.Setup(arg => arg.SuppressBadLines)
+                .As("sbl")
+                .WithDescription(
+                    "When true, do NOT show bad lines to console (they are still logged to a file). Default is FALSE").SetDefault(false);
+
+
+            
+
             // _fluentCommandLineParser.Setup(arg => arg.FieldName)
             //     .As('f')
             //     .WithDescription(
@@ -108,6 +116,11 @@ namespace iisGeolocate
 
             _uniqueIps = new Dictionary<string, UniqueIp>();
 
+            
+            _logger.Info(header);
+            _logger.Info("");
+
+
             var logFiles = Directory.GetFiles(_fluentCommandLineParser.Object.LogDirectory, "*.log",SearchOption.AllDirectories);
 
             if (logFiles.Length > 0)
@@ -140,13 +153,14 @@ namespace iisGeolocate
                 Directory.CreateDirectory(_fluentCommandLineParser.Object.CsvDirectory);
             }
 
+
             _logger.Warn(
                 "NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with 'fe80'");
 
             var badDataFile = Path.Combine(_fluentCommandLineParser.Object.CsvDirectory, "BadDatarows_REVIEW_ME.txt");
             var badStream = new StreamWriter(badDataFile);
 
-            _logger.Info($"All malformed data rows will be IGNORED but written to '{badDataFile}'. REVIEW THIS!");
+            _logger.Info($"\r\nAll malformed data rows will be IGNORED but written to '{badDataFile}'. REVIEW THIS!\r\n");
 
             using (var reader = new DatabaseReader(dbName))
             {
@@ -210,14 +224,38 @@ namespace iisGeolocate
                     
                     //at this point, iterate all fileChunks and make it a csv, do lookup, update extra fields, write it out
 
+                    var ts = DateTimeOffset.UtcNow;
+                    var counter = 0;
 
                     _logger.Info($"\tLog chunks found in '{file}': {fileChunks.Count}. Processing chunks...");
                     foreach (var fileChunk in fileChunks)
                     {
+                        counter += 1;
+
+                        _logger.Info($"\tFound {fileChunk.Value.Count:N0} rows in chunk {counter}");
+                      
+                        //outcsv stuff
+
+                        var logBaseName = Path.GetFileNameWithoutExtension(file);
+
+                        var fout = Path.Combine(_fluentCommandLineParser.Object.CsvDirectory, $"{ts:yyyyMMddHHmmss}_{logBaseName}_Chunk{counter}.csv");
+
+                        var csvOut = new CsvWriter(new StreamWriter(fout), CultureInfo.CurrentCulture);
+
+
+                        //outcsv stuff
+
+
+
                         var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
                         conf.Delimiter = " ";
                         conf.BadDataFound = rawData =>
                         {
+                            if (_fluentCommandLineParser.Object.SuppressBadLines)
+                            {
+                                return;
+                                
+                            }
                             _logger.Warn($"Bad data found! Ignoring!!! Row: '{rawData.RawRecord.Trim()}'");
                             badStream.Write(rawData.RawRecord);
                         };
@@ -227,8 +265,10 @@ namespace iisGeolocate
                         
                         csv.Read();
                         csv.ReadHeader();
+
+                      
                         
-                        var rows = csv.GetRecords<dynamic>();
+                        var rows = csv.GetRecords<dynamic>().ToList();
 
                         foreach (var row in rows)
                         {
@@ -246,6 +286,11 @@ namespace iisGeolocate
                            row.GeoCity = gr.City;
                            row.GeoCountry = gr.Country;
                         }
+
+                        csvOut.WriteRecords(rows);
+
+                        csvOut.Flush();
+                        csvOut.Dispose();
 
                     }
                     
@@ -478,7 +523,7 @@ namespace iisGeolocate
         internal class ApplicationArguments
         {
             public string LogDirectory { get; set; }
-            public string FieldName { get; set; }
+            public bool SuppressBadLines { get; set; }
             public string CsvDirectory { get; set; }
         }
     }
