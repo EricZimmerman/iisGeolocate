@@ -251,13 +251,14 @@ namespace iisGeolocate
                         conf.Delimiter = " ";
                         conf.BadDataFound = rawData =>
                         {
+                            badStream.Write(rawData.RawRecord);
                             if (_fluentCommandLineParser.Object.SuppressBadLines)
                             {
                                 return;
                                 
                             }
                             _logger.Warn($"Bad data found! Ignoring!!! Row: '{rawData.RawRecord.Trim()}'");
-                            badStream.Write(rawData.RawRecord);
+                         
                         };
 
                         var aa = new StringReader(string.Join("\r\n", fileChunk.Value));
