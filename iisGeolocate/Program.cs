@@ -55,7 +55,7 @@ namespace iisGeolocate
             _fluentCommandLineParser.Setup(arg => arg.LogDirectory)
                 .As('d')
                 .WithDescription(
-                    "The directory that contains IIS logs. This will be recursively searched for *.log files");
+                    "The directory that contains IIS logs. This will be recursively searched for *.log files. Required");
 
             _fluentCommandLineParser.Setup(arg => arg.CsvDirectory)
                 .As("csv")
