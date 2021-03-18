@@ -275,9 +275,7 @@ namespace iisGeolocate
                             csvOut = new CsvWriter(new StreamWriter(fout), CultureInfo.CurrentCulture);
                         }
                         
-                        
-
-                        //outcsv stuff
+                        //outcsv stuff end
 
                         var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
                         conf.Delimiter = " ";
@@ -303,9 +301,6 @@ namespace iisGeolocate
                             csv.Read();
                             csv.ReadHeader();
 
-                       //     var rows = csv.GetRecords<dynamic>();
-
-                       long intCounter = 0;
                             while (csv.Read())
                             {
                                 var record = csv.GetRecord<dynamic>();
@@ -316,28 +311,26 @@ namespace iisGeolocate
                                 {
                                     record.GeoCity = "NA";
                                     record.GeoCountry = "NA";
-                                    continue;
                                 }
-
-                                if (ipinfo.ContainsKey(ip) == false)
+                                else
                                 {
-                                    var gr = GetIpInfo(ip, reader);
-                                    ipinfo.Add(ip,gr);
+                                    if (ipinfo.ContainsKey(ip) == false)
+                                    {
+                                        var gr = GetIpInfo(ip, reader);
+                                        ipinfo.Add(ip,gr);
+                                    }
+                                    record.GeoCity = ipinfo[ip].City;
+                                    record.GeoCountry = ipinfo[ip].Country;    
                                 }
-                                record.GeoCity = ipinfo[ip].City;
-                                record.GeoCountry = ipinfo[ip].Country;
 
                                 csvOut?.WriteRecord(record);
                                 csvOut?.NextRecord();
 
-                                intCounter += 1;
-
-                                if (intCounter % 10_000 == 0)
+                                if (csvOut?.Row % 10_000 == 0) 
                                 {
                                     csvOut?.Flush();
                                 }
                             }
-
                        
                             csvOut?.Flush();
                             csvOut?.Dispose();
