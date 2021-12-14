@@ -1,46 +1,44 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFrameworks>net462;net6.0</TargetFrameworks>
-    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
-    <GenerateSupportedRuntime>false</GenerateSupportedRuntime>
-    <AssemblyTitle>iisGeolocate</AssemblyTitle>
-    <Company>Eric R. Zimmerman 501-313-3778</Company>
-    <Product>iisGeolocate</Product>
-    <Description>Add geolocation information to IIS logs</Description>
-    <Copyright>Copyright © 2022</Copyright>
-    <AssemblyVersion>2.1.0.2</AssemblyVersion>
-    <FileVersion>2.1.0.2</FileVersion>
-  </PropertyGroup>
-  <PropertyGroup>
-    <ApplicationIcon>GlobeInfo.ico</ApplicationIcon>
-  </PropertyGroup>
-  <ItemGroup>
-    <PackageReference Include="System.CommandLine" Version="2.0.0-beta2.21613.2" />
-    <PackageReference Include="System.CommandLine.NamingConventionBinder" Version="2.0.0-beta2.21613.2" />
-    <PackageReference Include="System.IO.Compression" Version="4.*" />
-    <PackageReference Include="System.Data.DataSetExtensions" Version="4.*" />
-   
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="SampleIISLog.log" />
-  </ItemGroup>
-  <ItemGroup>
-    <Content Include="GlobeInfo.ico" />
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Costura.Fody" Version="5.7.0">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="CsvHelper" Version="27.2.1" />
-    <PackageReference Include="Exceptionless" Version="4.6.2" />
-    <PackageReference Include="FluentCommandLineParser" Version="1.5.0.20-commands" />
-    <PackageReference Include="Fody" Version="6.6.0">
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
-    <PackageReference Include="MaxMind.GeoIP2" Version="4.1.0" />
-    <PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
-    <PackageReference Include="NLog" Version="4.7.13" />
-  </ItemGroup>
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFrameworks>net462;net6.0</TargetFrameworks>
+        <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+        <GenerateSupportedRuntime>false</GenerateSupportedRuntime>
+        <AssemblyTitle>iisGeolocate</AssemblyTitle>
+        <Company>Eric R. Zimmerman 501-313-3778</Company>
+        <Product>iisGeolocate</Product>
+        <Description>Add geolocation information to IIS logs</Description>
+        <Copyright>Copyright © 2022</Copyright>
+        <AssemblyVersion>2.1.0.2</AssemblyVersion>
+        <LangVersion>10</LangVersion>
+        <FileVersion>2.1.0.2</FileVersion>
+    </PropertyGroup>
+    <PropertyGroup>
+        <ApplicationIcon>GlobeInfo.ico</ApplicationIcon>
+    </PropertyGroup>
+    <ItemGroup>
+        <PackageReference Include="System.CommandLine" Version="2.0.0-beta2.21613.3"/>
+        <PackageReference Include="System.CommandLine.NamingConventionBinder" Version="2.0.0-beta2.21613.3"/>
+        <PackageReference Include="System.IO.Compression" Version="4.*"/>
+        <PackageReference Include="System.Data.DataSetExtensions" Version="4.*"/>
+    </ItemGroup>
+    <ItemGroup>
+        <None Include="SampleIISLog.log"/>
+    </ItemGroup>
+    <ItemGroup>
+        <Content Include="GlobeInfo.ico"/>
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="Costura.Fody" Version="5.7.0">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+        <PackageReference Include="CsvHelper" Version="27.2.1"/>
+        <PackageReference Include="Exceptionless" Version="4.6.2"/>
+        <PackageReference Include="Fody" Version="6.6.0">
+            <PrivateAssets>all</PrivateAssets>
+        </PackageReference>
+        <PackageReference Include="MaxMind.GeoIP2" Version="4.1.0"/>
+        <PackageReference Include="Microsoft.CSharp" Version="4.7.0"/>
+        <PackageReference Include="NLog" Version="4.7.13"/>
+    </ItemGroup>
 </Project>
