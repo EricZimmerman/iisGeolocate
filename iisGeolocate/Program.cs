@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using CsvHelper;
 using CsvHelper.Configuration;
@@ -71,8 +70,6 @@ namespace iisGeolocate
                 .As("nul")
                 .WithDescription(
                     "When true, do NOT create updated CSV files in --csv directory. Default is FALSE").SetDefault(false);
-
-            
             
             _logger = LogManager.GetCurrentClassLogger();
 
