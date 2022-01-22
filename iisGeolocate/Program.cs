@@ -5,6 +5,7 @@ using System.CommandLine.Help;
 using System.CommandLine.NamingConventionBinder;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using CsvHelper;
@@ -12,15 +13,13 @@ using CsvHelper.Configuration;
 using Exceptionless;
 using MaxMind.GeoIP2;
 using MaxMind.GeoIP2.Exceptions;
-using NLog;
-using NLog.Config;
-using NLog.Targets;
+using Serilog;
+
 
 namespace iisGeolocate;
 
 internal class Program
 {
-    private static Logger _logger;
     private static Dictionary<string, UniqueIp> _uniqueIps;
 
     private static readonly string Header =
@@ -30,45 +29,22 @@ internal class Program
 
     private static RootCommand _rootCommand;
 
-    private static void SetupNLog()
-    {
-        var config = new LoggingConfiguration();
-        var loglevel = LogLevel.Info;
-
-        var layout = @"${message}";
-
-        var consoleTarget = new ColoredConsoleTarget();
-
-        config.AddTarget("console", consoleTarget);
-
-        consoleTarget.Layout = layout;
-
-        var rule1 = new LoggingRule("*", loglevel, consoleTarget);
-        config.LoggingRules.Add(rule1);
-
-        LogManager.Configuration = config;
-    }
-
     private static async Task Main(string[] args)
     {
         ExceptionlessClient.Default.Startup("ujUuuNlhz7ZQKoDxBohBMKmPxErDgbFmNdYvPRHM");
-
-        SetupNLog();
-
-        _logger = LogManager.GetCurrentClassLogger();
 
         _rootCommand = new RootCommand
         {
             new Option<string>(
                 "-d",
-                "The directory that contains IIS logs. This will be recursively searched for *.log files. Required"),
+                "The directory that contains IIS logs. This will be recursively searched for *.log files"),
 
             new Option<string>(
                 "--csv",
-                "The directory to write results to. Required"),
+                "The directory to write results to"),
 
             new Option<bool>(
-                "--csv",
+                "--sbl",
                 () => false,
                 "When true, do NOT show bad lines to console (they are still logged to a file)"),
 
@@ -78,16 +54,29 @@ internal class Program
                 "When true, do NOT create updated CSV files in --csv directory")
         };
 
+        _rootCommand.Options.Single(t=>t.Name == "d").IsRequired = true;
+        _rootCommand.Options.Single(t=>t.Name == "csv").IsRequired = true;
+        
         _rootCommand.Description = Header;
 
         _rootCommand.Handler = CommandHandler.Create(DoWork);
 
         await _rootCommand.InvokeAsync(args);
+        
+        Log.CloseAndFlush();
     }
 
     private static void DoWork(string d, string csv, bool sbl, bool nul)
     {
-        var baseDir = Path.GetDirectoryName(Assembly.GetEntryAssembly().Location);
+
+        var template = "{Message:lj}{NewLine}{Exception}";
+
+        Log.Logger = new LoggerConfiguration()
+            .WriteTo.Console(outputTemplate: template)
+            .CreateLogger();
+
+
+        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
         if (string.IsNullOrEmpty(d) || string.IsNullOrEmpty(csv))
         {
@@ -96,21 +85,23 @@ internal class Program
 
             helpBld.Write(hc);
 
-            _logger.Warn("Both -d and --csv are required. Exiting");
+            Log.Warning("Both -d and --csv are required. Exiting");
+            Console.WriteLine();
             return;
         }
 
         _uniqueIps = new Dictionary<string, UniqueIp>();
 
-        _logger.Info(Header);
-        _logger.Info("");
+        Log.Information("{Header}",Header);
+        Console.WriteLine();
 
         d = Path.GetFullPath(d);
         csv = Path.GetFullPath(csv);
 
         if (Directory.Exists(d) == false)
         {
-            _logger.Warn($"'{d}' does not exist. Exiting");
+            Log.Warning("{D} does not exist. Exiting",d);
+            Console.WriteLine();
             return;
         }
 
@@ -119,7 +110,8 @@ internal class Program
 
         if (File.Exists(litePath) == false && File.Exists(cityPath) == false)
         {
-            _logger.Fatal("'GeoLite2-City.mmdb' or 'GeoIP2-City.mmdb' missing! Cannot continue. Exiting");
+            Log.Fatal("{CityLite} or {CityIp} missing! Cannot continue. Exiting","GeoLite2-City.mmdb","GeoIP2-City.mmdb");
+            Console.WriteLine();
             return;
         }
 
@@ -127,7 +119,7 @@ internal class Program
 
         if (File.Exists(cityPath))
         {
-            _logger.Info("Found 'GeoIP2-City.mmdb', so using that vs lite...");
+            Log.Information("Found {Db}, so using that vs lite...","GeoIP2-City.mmdb");
             dbName = cityPath;
         }
 
@@ -135,11 +127,12 @@ internal class Program
 
         if (logFiles.Length > 0)
         {
-            _logger.Info($"Found {logFiles.Length} log files");
+            Log.Information("Found {Count:N0} log files",logFiles.Length);
         }
         else
         {
-            _logger.Fatal("No files ending in .log found. Exiting...");
+            Log.Fatal("No files ending in {Log} found. Exiting...",".log");
+            Console.WriteLine();
             return;
         }
 
@@ -148,92 +141,91 @@ internal class Program
             Directory.CreateDirectory(csv);
         }
 
-        _logger.Warn(
-            "NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with 'fe80'");
+        Log.Information("NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with {Mask}","fe80");
 
         var badDataFile = Path.Combine(csv, "BadDataRows_REVIEW_ME.txt");
         var badStream = new StreamWriter(badDataFile);
 
-        _logger.Info($"\r\nAll malformed data rows will be IGNORED but written to '{badDataFile}'. REVIEW THIS!\r\n");
-
+        Console.WriteLine();
+        Log.Information("All malformed data rows will be IGNORED but written to {BadDataFile}. REVIEW THIS!",badDataFile);
+        Console.WriteLine();
+        
         var ipinfo = new Dictionary<string, GeoResults>();
 
         using (var reader = new DatabaseReader(dbName))
         {
             foreach (var file in logFiles)
             {
-                _logger.Warn($"Opening '{file}'");
+                Log.Information("Opening {File}",file);
 
                 var fileChunks = new Dictionary<string, List<string>>();
 
-                using (var instream = File.OpenText(file))
+                using var inStream = File.OpenText(file);
+                if (inStream.BaseStream.Length == 0)
                 {
-                    if (instream.BaseStream.Length == 0)
+                    Log.Information("\t{File} is empty. Skipping...",file);
+                    inStream.Close();
+                    continue;
+                }
+
+                var line = inStream.ReadLine();
+
+                if (line.StartsWith("#") == false)
+                {
+                    Log.Information("\tThe first line in {File} does not start with a #! Is this an IIS log? Skipping...",file);
+                    inStream.Close();
+                    continue;
+                }
+
+                if (line.StartsWith("#Software: Microsoft Exchange"))
+                {
+                    Log.Information("\tSkipping {File}! Does not appear to be an IIS related file. Skipping...",file);
+                    inStream.Close();
+                    continue;
+                }
+
+                string lastHeaderRow = null;
+
+                while (line != null)
+                {
+                    if (line.StartsWith("#"))
                     {
-                        _logger.Fatal($"\t'{file}' is empty. Skipping...");
-                        instream.Close();
-                        continue;
-                    }
-
-                    var line = instream.ReadLine();
-
-                    if (line.StartsWith("#") == false)
-                    {
-                        _logger.Fatal($"\tThe first line in '{file}' does not start with a #! Is this an IIS log? Skipping...");
-                        instream.Close();
-                        continue;
-                    }
-
-                    if (line.StartsWith("#Software: Microsoft Exchange"))
-                    {
-                        _logger.Fatal($"\tSkipping '{file}'! Does not appear to be an IIS related file. Skipping...");
-                        instream.Close();
-                        continue;
-                    }
-
-                    string lastHeaderRow = null;
-
-                    while (line != null)
-                    {
-                        if (line.StartsWith("#"))
+                        if (line.StartsWith("#Fields:"))
                         {
-                            if (line.StartsWith("#Fields:"))
+                            var headerRow = line.Substring(9);
+
+                            //need to change to underscore so the dynamic object knows how to get data out vs trying to subtract c - ip. stupid microsoft and these names
+                            headerRow = headerRow.Replace("-", "_");
+
+                            if (headerRow == lastHeaderRow)
                             {
-                                var headerRow = line.Substring(9);
-
-                                //need to change to underscore so the dynamic object knows how to get data out vs trying to subtract c - ip. stupid microsoft and these names
-                                headerRow = headerRow.Replace("-", "_");
-
-                                if (headerRow == lastHeaderRow)
-                                {
-                                    //the second header is the same, so keep appending
-                                    line = instream.ReadLine();
-                                    continue;
-                                }
-
-                                //new data based on header
-
-                                lastHeaderRow = headerRow;
-
-                                fileChunks.Add(headerRow, new List<string>());
-
-                                headerRow = $"{headerRow} GeoCity GeoCountry";
-
-                                fileChunks[lastHeaderRow].Add(headerRow);
-
-                                line = instream.ReadLine();
+                                //the second header is the same, so keep appending
+                                line = inStream.ReadLine();
                                 continue;
                             }
 
-                            line = instream.ReadLine();
+                            //new data based on header
+
+                            lastHeaderRow = headerRow;
+
+                            fileChunks.Add(headerRow, new List<string>());
+
+                            headerRow = $"{headerRow} GeoCity GeoCountry";
+
+                            fileChunks[lastHeaderRow].Add(headerRow);
+
+                            line = inStream.ReadLine();
                             continue;
                         }
 
-                        //this is where data needs to be persisted for later
-                        fileChunks[lastHeaderRow].Add(line);
-
-                        line = instream.ReadLine();
+                        line = inStream.ReadLine();
+                        continue;
                     }
+
+                    //this is where data needs to be persisted for later
+                    fileChunks[lastHeaderRow].Add(line);
+
+                    line = inStream.ReadLine();
                 }
 
                 //at this point, iterate all fileChunks and make it a csv, do lookup, update extra fields, write it out
@@ -241,12 +233,13 @@ internal class Program
                 var ts = DateTimeOffset.UtcNow;
                 var counter = 0;
 
-                _logger.Info($"\tLog chunks found in '{file}': {fileChunks.Count}. Processing chunks...");
+                Log.Information("\tLog chunks found in {File}: {Count:N0}. Processing chunks...",file,fileChunks.Count);
+                
                 foreach (var fileChunk in fileChunks)
                 {
                     counter += 1;
 
-                    _logger.Info($"\tFound {fileChunk.Value.Count:N0} rows in chunk {counter}");
+                    Log.Information("\tFound {Count:N0} rows in chunk {Counter:N0}",fileChunk.Value.Count,counter);
 
                     //outcsv stuff
 
@@ -264,7 +257,10 @@ internal class Program
                     //outcsv stuff end
 
                     var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
+                    //hack so the idiotic iis logs can be processed
+                    conf.WhiteSpaceChars[0] = '|';
                     conf.Delimiter = " ";
+                    
                     conf.BadDataFound = rawData =>
                     {
                         badStream.Write(rawData.RawRecord);
@@ -273,7 +269,7 @@ internal class Program
                             return;
                         }
 
-                        _logger.Warn($"Bad data found! Ignoring!!! Row: '{rawData.RawRecord.Trim()}'");
+                        Log.Warning("Bad data found! Ignoring!!! Row: '{Bad}'",rawData.RawRecord.Trim());
                     };
 
                     //write out lines to temp file to avoid out of memory error
@@ -335,15 +331,16 @@ internal class Program
             badStream.Close();
         }
 
-        _logger.Info("");
+        Console.WriteLine();
 
         if (_uniqueIps.Count <= 0)
         {
-            _logger.Info("No unique, geolocated IPs found!\r\n");
+            Log.Information("No unique, geolocated IPs found!");
+            Console.WriteLine();
             return;
         }
 
-        _logger.Info("Saving unique IPs to '!UniqueIPs.csv'");
+        Log.Information("Saving unique IPs to {File}","!UniqueIPs.csv");
 
         using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(csv, "!UniqueIPs.csv"))))
         {
@@ -354,7 +351,7 @@ internal class Program
             uniqOut.Flush();
         }
 
-        _logger.Info("");
+        Console.WriteLine();
     }
 
     private static GeoResults GetIpInfo(string ip, DatabaseReader reader)
@@ -386,7 +383,7 @@ internal class Program
         }
         catch (Exception ex)
         {
-            _logger.Info($"Error: {ex.Message} for ip: {ip}");
+            Log.Error(ex,"Error {Message} for ip: {Ip}",ex.Message,ip);
         }
 
         return gr;
