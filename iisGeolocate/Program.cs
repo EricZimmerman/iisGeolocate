@@ -35,7 +35,7 @@ internal class Program
 
         var dOpt = new Option<string>("-d")
         {
-            Description = "Directory to recursively process. Either this or -f is required"
+            Description = "Directory to recursively process for IIS logs. This will be searched for *.log files"
         };
         
         var csvOpt = new Option<string>(
