@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+  </Configurations>
+  <Project Path="iisGeolocate.Test/iisGeolocate.Test.csproj" />
+  <Project Path="iisGeolocate/iisGeolocate.csproj" />
+</Solution>

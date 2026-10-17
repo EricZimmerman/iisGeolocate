@@ -3,102 +3,116 @@ using System.Collections.Generic;
 using System.CommandLine;
 using System.CommandLine.Help;
 using System.CommandLine.Invocation;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
 using CsvHelper;
 using CsvHelper.Configuration;
 using Exceptionless;
-using MaxMind.GeoIP2;
-using MaxMind.GeoIP2.Exceptions;
 using Serilog;
-
 
 namespace iisGeolocate;
 
-internal class Program
+public class Program
 {
-    private static Dictionary<string, UniqueIp> _uniqueIps;
+    public const string BadRowsFileName = "BadDataRows_REVIEW_ME.txt";
+    public const string UniqueIpsFileName = "!UniqueIPs.csv";
+
+    private static readonly string[] DatabaseNames = { "GeoIP2-City.mmdb", "GeoLite2-City.mmdb" };
 
     private static readonly string Header =
         $"iisgeolocate version {Assembly.GetExecutingAssembly().GetName().Version.ToString(3)}" +
         "\r\n\r\nAuthor: Eric Zimmerman (saericzimmerman@gmail.com)" +
         "\r\nhttps://github.com/EricZimmerman/iisGeolocate";
 
+    private static readonly string Footer =
+        @"Examples: iisGeolocate.exe -d ""C:\inetpub\logs\LogFiles"" --csv ""C:\temp\out""" + "\r\n\t " +
+        @"   iisGeolocate.exe -d ""C:\temp\logs"" --csv ""C:\temp\out"" --db ""C:\GeoIP\GeoLite2-City.mmdb""" + "\r\n\t" +
+        "\r\n\t" +
+        "    Without --db, GeoIP2-City.mmdb or GeoLite2-City.mmdb must be next to iisGeolocate\r\n";
+
     private static RootCommand _rootCommand;
 
-    private static async Task Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         ExceptionlessClient.Default.Startup("ujUuuNlhz7ZQKoDxBohBMKmPxErDgbFmNdYvPRHM");
+
+        Log.Logger = new LoggerConfiguration()
+            .WriteTo.Console(outputTemplate: "{Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
 
         var dOpt = new Option<string>("-d")
         {
             Description = "Directory to recursively process for IIS logs. This will be searched for *.log files"
         };
-        
-        var csvOpt = new Option<string>(
-            "--csv")
+
+        var csvOpt = new Option<string>("--csv")
         {
             Description = "Directory to save CSV formatted results to. Be sure to include the full path in double quotes"
-        
         };
-        
+
+        var dbOpt = new Option<string>("--db")
+        {
+            Description =
+                "MaxMind database to use (City, Enterprise or Country). Default is GeoIP2-City.mmdb, else GeoLite2-City.mmdb, next to iisGeolocate"
+        };
+
         var sblOpt = new Option<bool>("--sbl")
         {
             Description = "When true, do NOT show bad lines to console (they are still logged to a file). Default is false",
             DefaultValueFactory = _ => false
         };
-        
+
         var nulOpt = new Option<bool>("--nul")
         {
             Description = "When true, do NOT create updated CSV files in --csv directory. Default is false",
             DefaultValueFactory = _ => false
         };
-        
+
         _rootCommand = new RootCommand
         {
             dOpt,
             csvOpt,
+            dbOpt,
             sblOpt,
             nulOpt
         };
 
-        
-        _rootCommand.Description = Header;
+        _rootCommand.Description = Header + "\r\n\r\n" + Footer;
 
-        _rootCommand.SetAction(result => DoWork(result.GetValue(dOpt), result.GetValue(csvOpt), result.GetValue(sblOpt),
-            result.GetValue(nulOpt)));
-            
-        var foo = _rootCommand.Parse(args).InvokeAsync();
-        
+        _rootCommand.SetAction(result => DoWork(result.GetValue(dOpt), result.GetValue(csvOpt), result.GetValue(dbOpt),
+            result.GetValue(sblOpt), result.GetValue(nulOpt)));
+
+        var exitCode = await _rootCommand.Parse(args).InvokeAsync();
+
         Log.CloseAndFlush();
+
+        return exitCode;
     }
 
-    private static void DoWork(string d, string csv, bool sbl, bool nul)
+    /// <returns>
+    ///     0 on success. 1 when arguments are invalid, the database can't be used, a log can't be read or an output
+    ///     file can't be written
+    /// </returns>
+    private static int DoWork(string d, string csv, string db, bool sbl, bool nul)
     {
-
-        var template = "{Message:lj}{NewLine}{Exception}";
-
-        Log.Logger = new LoggerConfiguration()
-            .WriteTo.Console(outputTemplate: template)
-            .CreateLogger();
-
-
-        var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
         if (string.IsNullOrEmpty(d) || string.IsNullOrEmpty(csv))
         {
-            var aaa = new CustomHelpAction(new HelpAction());
-            aaa.Invoke(_rootCommand.Parse("Both -d and --csv are required. Exiting"));
+            var helpAction = new CustomHelpAction(new HelpAction());
+            helpAction.Invoke(_rootCommand.Parse(""));
+
+            Log.Warning("Both -d and --csv are required. Exiting");
             Console.WriteLine();
-            return;
+            return 1;
         }
 
-        _uniqueIps = new Dictionary<string, UniqueIp>();
-
-        Log.Information("{Header}",Header);
+        Log.Information("{Header}", Header);
+        Console.WriteLine();
+        Log.Information("Command line: {Args}", string.Join(" ", Environment.GetCommandLineArgs().Skip(1)));
         Console.WriteLine();
 
         d = Path.GetFullPath(d);
@@ -106,260 +120,254 @@ internal class Program
 
         if (Directory.Exists(d) == false)
         {
-            Log.Warning("{D} does not exist. Exiting",d);
+            Log.Warning("{D} does not exist. Exiting", d);
             Console.WriteLine();
-            return;
+            return 1;
         }
 
-        var litePath = Path.Combine(baseDir, "GeoLite2-City.mmdb");
-        var cityPath = Path.Combine(baseDir, "GeoIP2-City.mmdb");
-
-        if (File.Exists(litePath) == false && File.Exists(cityPath) == false)
+        if (string.IsNullOrEmpty(db))
         {
-            Log.Fatal("{CityLite} or {CityIp} missing! Cannot continue. Exiting","GeoLite2-City.mmdb","GeoIP2-City.mmdb");
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            db = DatabaseNames.Select(t => Path.Combine(baseDir, t)).FirstOrDefault(File.Exists);
+
+            if (db == null)
+            {
+                Log.Fatal("{CityIp} or {CityLite} missing from {Dir}! Put one there or use --db. Exiting",
+                    DatabaseNames[0], DatabaseNames[1], baseDir);
+                Console.WriteLine();
+                return 1;
+            }
+        }
+        else if (File.Exists(db) == false)
+        {
+            Log.Fatal("Database {Db} not found. Exiting", db);
             Console.WriteLine();
-            return;
+            return 1;
         }
 
-        var dbName = litePath;
-
-        if (File.Exists(cityPath))
+        GeoLookup geo;
+        try
         {
-            Log.Information("Found {Db}, so using that vs lite...","GeoIP2-City.mmdb");
-            dbName = cityPath;
+            geo = new GeoLookup(db);
         }
-
-        var logFiles = Directory.GetFiles(d, "*.log", SearchOption.AllDirectories);
-
-        if (logFiles.Length > 0)
+        catch (Exception ex)
         {
-            Log.Information("Found {Count:N0} log files",logFiles.Length);
-        }
-        else
-        {
-            Log.Fatal("No files ending in {Log} found. Exiting...",".log");
+            Log.Fatal("Could not use database {Db}: {Message}. Exiting", db, ex.Message);
             Console.WriteLine();
-            return;
+            return 1;
         }
 
-        if (Directory.Exists(csv) == false)
+        using (geo)
+        {
+            Log.Information("Using {Db} ({Type}, built {Built:yyyy-MM-dd})", db, geo.DatabaseType, geo.BuildDate);
+            Console.WriteLine();
+
+            return ProcessLogs(d, csv, sbl, nul, geo);
+        }
+    }
+
+    private static int ProcessLogs(string d, string csv, bool sbl, bool nul, GeoLookup geo)
+    {
+        var logFiles = FindLogs(d);
+
+        if (logFiles.Count == 0)
+        {
+            Log.Warning("No files ending in {Log} found in {D}. Exiting", ".log", d);
+            Console.WriteLine();
+            return 0;
+        }
+
+        Log.Information("Found {Count:N0} log files", logFiles.Count);
+
+        var badDataFile = Path.Combine(csv, BadRowsFileName);
+        CsvWriter badCsv;
+
+        try
         {
             Directory.CreateDirectory(csv);
+
+            badCsv = new CsvWriter(new StreamWriter(badDataFile, false, new UTF8Encoding(false)),
+                new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = "\t" });
+            badCsv.WriteHeader<BadRow>();
+            badCsv.NextRecord();
+        }
+        catch (Exception ex)
+        {
+            Log.Fatal("Could not create {BadDataFile}: {Message}. Exiting", badDataFile, ex.Message);
+            return 1;
         }
 
-        Log.Information("NOTE: multicast, private, or reserved addresses will be SKIPPED (including IPv6 that starts with {Mask}","fe80");
-
-        var badDataFile = Path.Combine(csv, "BadDataRows_REVIEW_ME.txt");
-        var badStream = new StreamWriter(badDataFile);
-
+        Log.Information(
+            "NOTE: private, loopback, link local, multicast and reserved addresses are not looked up (GeoCity and GeoCountry are NA)");
         Console.WriteLine();
-        Log.Information("All malformed data rows will be IGNORED but written to {BadDataFile}. REVIEW THIS!",badDataFile);
+        Log.Information("All malformed data rows will be IGNORED but written to {BadDataFile}. REVIEW THIS!", badDataFile);
         Console.WriteLine();
-        
-        var ipinfo = new Dictionary<string, GeoResults>();
 
-        using (var reader = new DatabaseReader(dbName))
+        var failed = new List<string>();
+        var ts = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
+        var sw = Stopwatch.StartNew();
+        long totalRows = 0;
+        long totalBad = 0;
+
+        using (badCsv)
         {
             foreach (var file in logFiles)
             {
-                Log.Information("Opening {File}",file);
+                Log.Information("Opening {File}", file);
 
-                var fileChunks = new Dictionary<string, List<string>>();
-
-                using var inStream = File.OpenText(file);
-                if (inStream.BaseStream.Length == 0)
+                try
                 {
-                    Log.Information("\t{File} is empty. Skipping...",file);
-                    inStream.Close();
-                    continue;
-                }
-
-                var line = inStream.ReadLine();
-
-                if (line.StartsWith("#") == false)
-                {
-                    Log.Information("\tThe first line in {File} does not start with a #! Is this an IIS log? Skipping...",file);
-                    inStream.Close();
-                    continue;
-                }
-
-                if (line.StartsWith("#Software: Microsoft Exchange"))
-                {
-                    Log.Information("\tSkipping {File}! Does not appear to be an IIS related file. Skipping...",file);
-                    inStream.Close();
-                    continue;
-                }
-
-                string lastHeaderRow = null;
-
-                while (line != null)
-                {
-                    if (line.StartsWith("#"))
+                    var result = LogProcessor.Process(file, nul ? null : csv, ts, geo, bad =>
                     {
-                        if (line.StartsWith("#Fields:"))
+                        badCsv.WriteRecord(bad);
+                        badCsv.NextRecord();
+
+                        if (sbl == false)
                         {
-                            var headerRow = line.Substring(9);
-
-                            //need to change to underscore so the dynamic object knows how to get data out vs trying to subtract c - ip. stupid microsoft and these names
-                            headerRow = headerRow.Replace("-", "_");
-
-                            if (headerRow == lastHeaderRow)
-                            {
-                                //the second header is the same, so keep appending
-                                line = inStream.ReadLine();
-                                continue;
-                            }
-
-                            //new data based on header
-
-                            lastHeaderRow = headerRow;
-
-                            fileChunks.Add(headerRow, new List<string>());
-
-                            headerRow = $"{headerRow} GeoCity GeoCountry";
-
-                            fileChunks[lastHeaderRow].Add(headerRow);
-
-                            line = inStream.ReadLine();
-                            continue;
+                            Log.Warning("\tBad data found ({Reason}, line {Line:N0})! Ignoring!!! Row: '{Bad}'",
+                                bad.Reason, bad.LineNumber, bad.Row.Trim());
                         }
+                    });
 
-                        line = inStream.ReadLine();
+                    badCsv.Flush();
+
+                    if (result.Skipped != null)
+                    {
+                        Log.Information("\t{File} {Reason}. Skipping...", file, result.Skipped);
                         continue;
                     }
 
-                    //this is where data needs to be persisted for later
-                    fileChunks[lastHeaderRow].Add(line);
+                    foreach (var chunk in result.Chunks)
+                    {
+                        Log.Information("\tChunk {Counter:N0}: {Rows:N0} rows{Out}", chunk.Number, chunk.Rows,
+                            chunk.CsvFile == null ? string.Empty : $", saved to {Path.GetFileName(chunk.CsvFile)}");
 
-                    line = inStream.ReadLine();
+                        if (chunk.HasClientIp == false)
+                        {
+                            Log.Warning("\tChunk {Counter:N0} has no {Field} field, so there is nothing to geolocate",
+                                chunk.Number, LogProcessor.ClientIpField);
+                        }
+                    }
+
+                    if (result.BadRows > 0)
+                    {
+                        Log.Warning("\tBad rows: {Bad:N0}", result.BadRows);
+                    }
+
+                    totalRows += result.Rows;
+                    totalBad += result.BadRows;
                 }
-
-                //at this point, iterate all fileChunks and make it a csv, do lookup, update extra fields, write it out
-
-                var ts = DateTimeOffset.UtcNow;
-                var counter = 0;
-
-                Log.Information("\tLog chunks found in {File}: {Count:N0}. Processing chunks...",file,fileChunks.Count);
-                
-                foreach (var fileChunk in fileChunks)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    counter += 1;
-
-                    Log.Information("\tFound {Count:N0} rows in chunk {Counter:N0}",fileChunk.Value.Count,counter);
-
-                    //outcsv stuff
-
-                    var logBaseName = Path.GetFileNameWithoutExtension(file);
-
-                    var fout = Path.Combine(csv, $"{ts:yyyyMMddHHmmss}_{logBaseName}_Chunk{counter}.csv");
-
-                    CsvWriter csvOut = null;
-
-                    if (nul == false)
-                    {
-                        csvOut = new CsvWriter(new StreamWriter(fout), CultureInfo.CurrentCulture);
-                    }
-
-                    //outcsv stuff end
-
-                    var conf = new CsvConfiguration(CultureInfo.CurrentCulture);
-                    //hack so the idiotic iis logs can be processed
-                    conf.WhiteSpaceChars[0] = '|';
-                    conf.Delimiter = " ";
-                    
-                    conf.BadDataFound = rawData =>
-                    {
-                        badStream.Write(rawData.RawRecord);
-                        if (sbl)
-                        {
-                            return;
-                        }
-
-                        Log.Warning("Bad data found! Ignoring!!! Row: '{Bad}'",rawData.RawRecord.Trim());
-                    };
-
-                    //write out lines to temp file to avoid out of memory error
-                    var tmp = Path.Combine(baseDir, "tmp.txt");
-                    File.WriteAllLines(tmp, fileChunk.Value);
-
-                    using (var sw = new StreamReader(tmp))
-                    {
-                        var csvReader = new CsvReader(sw, conf);
-
-                        csvReader.Read();
-                        csvReader.ReadHeader();
-
-                        while (csvReader.Read())
-                        {
-                            var record = csvReader.GetRecord<dynamic>();
-
-                            string ip = record.c_ip;
-
-                            if (ip == "127.0.0.1" || ip == "::1" || ip.StartsWith("10.") || ip.StartsWith("192.168"))
-                            {
-                                record.GeoCity = "NA";
-                                record.GeoCountry = "NA";
-                            }
-                            else
-                            {
-                                if (ipinfo.ContainsKey(ip) == false)
-                                {
-                                    var gr = GetIpInfo(ip, reader);
-                                    ipinfo.Add(ip, gr);
-                                }
-
-                                record.GeoCity = ipinfo[ip].City;
-                                record.GeoCountry = ipinfo[ip].Country;
-                            }
-
-                            csvOut?.WriteRecord(record);
-                            csvOut?.NextRecord();
-
-                            if (csvOut?.Row % 10_000 == 0)
-                            {
-                                csvOut.Flush();
-                            }
-                        }
-
-                        csvOut?.Flush();
-                        csvOut?.Dispose();
-
-                        sw.Close();
-                    }
-
-                    File.Delete(tmp);
+                    failed.Add(file);
+                    Log.Error("\tError processing {File}: {Message}", file, ex.Message);
                 }
-
-                badStream.Flush();
+                catch (Exception ex)
+                {
+                    failed.Add(file);
+                    Log.Error(ex, "\tError processing {File}: {Message}", file, ex.Message);
+                }
             }
+        }
 
-            badStream.Flush();
-            badStream.Close();
+        sw.Stop();
+        Console.WriteLine();
+
+        Log.Information("Processed {Count:N0} files in {Elapsed:N4} seconds. Rows: {Rows:N0}, bad rows: {Bad:N0}",
+            logFiles.Count - failed.Count, sw.Elapsed.TotalSeconds, totalRows, totalBad);
+
+        Log.Information(
+            "Distinct addresses: geolocated {Found:N0}, not in the database {NotFound:N0}, not public {NonPublic:N0}, not an IP address {Invalid:N0}",
+            geo.UniqueIps.Count, geo.NotFoundAddresses, geo.NonPublicAddresses, geo.InvalidAddresses);
+
+        foreach (var error in geo.LookupErrors.Take(10))
+        {
+            Log.Error("Lookup error for {Error}", error);
+        }
+
+        if (failed.Count > 0)
+        {
+            Console.WriteLine();
+            Log.Error("Failed files: {Count:N0}", failed.Count);
+            foreach (var file in failed)
+            {
+                Log.Error("\t{File}", file);
+            }
         }
 
         Console.WriteLine();
 
-        if (_uniqueIps.Count <= 0)
+        var exitCode = failed.Count > 0 ? 1 : 0;
+
+        if (geo.UniqueIps.Count == 0)
         {
             Log.Information("No unique, geolocated IPs found!");
             Console.WriteLine();
-            return;
+            return exitCode;
         }
 
-        Log.Information("Saving unique IPs to {File}","!UniqueIPs.csv");
+        var uniqueFile = Path.Combine(csv, UniqueIpsFileName);
+        Log.Information("Saving unique IPs to {File}", uniqueFile);
 
-        using (var uniqOut = new StreamWriter(File.OpenWrite(Path.Combine(csv, "!UniqueIPs.csv"))))
+        try
         {
-            var csw = new CsvWriter(uniqOut, CultureInfo.CurrentCulture);
-            csw.WriteHeader<UniqueIp>();
-            csw.NextRecord();
-            csw.WriteRecords(_uniqueIps.Values);
-            uniqOut.Flush();
+            using var uniqOut = new StreamWriter(uniqueFile, false, new UTF8Encoding(false));
+            using var csw = new CsvWriter(uniqOut, CultureInfo.InvariantCulture);
+            csw.WriteRecords(geo.UniqueIps);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Error("Could not write {File}: {Message}", uniqueFile, ex.Message);
+            exitCode = 1;
         }
 
         Console.WriteLine();
+
+        return exitCode;
     }
-    
+
+    /// <summary>*.log files under the directory (any case), sorted, skipping folders that can't be read</summary>
+    private static List<string> FindLogs(string dir)
+    {
+#if NET
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true, IgnoreInaccessible = true, MatchCasing = MatchCasing.CaseInsensitive,
+            AttributesToSkip = 0
+        };
+        var files = Directory.EnumerateFiles(dir, "*.log", options).ToList();
+#else
+        var files = new List<string>();
+        var pending = new Stack<string>();
+        pending.Push(dir);
+
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            try
+            {
+                //on Windows "*.log" also matches longer extensions through 8.3 names, so check it
+                files.AddRange(Directory.GetFiles(current, "*.log")
+                    .Where(t => string.Equals(Path.GetExtension(t), ".log", StringComparison.OrdinalIgnoreCase)));
+
+                foreach (var sub in Directory.GetDirectories(current))
+                {
+                    if ((File.GetAttributes(sub) & FileAttributes.ReparsePoint) == 0)
+                    {
+                        pending.Push(sub);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                Log.Warning("Could not read {Dir}: {Message}", current, ex.Message);
+            }
+        }
+#endif
+        files.Sort(StringComparer.OrdinalIgnoreCase);
+        return files;
+    }
+
     private class CustomHelpAction : SynchronousCommandLineAction
     {
         private readonly HelpAction _defaultHelp;
@@ -371,67 +379,7 @@ internal class Program
 
         public override int Invoke(ParseResult parseResult)
         {
-            var result = _defaultHelp.Invoke(parseResult);
-
-            Log.Warning("{Msg}", string.Join(" ",parseResult.Tokens));
-
-            return result;
+            return _defaultHelp.Invoke(parseResult);
         }
-    }
-
-    private static GeoResults GetIpInfo(string ip, DatabaseReader reader)
-    {
-        var gr = new GeoResults();
-        gr.City = "NA";
-        gr.Country = "NA";
-
-        try
-        {
-            var city = reader.City(ip);
-            gr.City = city.City.Name?.Replace(' ', '_');
-            gr.Country = city.Country.Name?.Replace(' ', '_');
-
-
-            if (_uniqueIps.ContainsKey(ip) == false)
-            {
-                var ui = new UniqueIp { City = city.City.Name };
-                ui.Country = city.Country.Name;
-                ui.IpAddress = ip;
-
-                _uniqueIps.Add(ip, ui);
-            }
-        }
-
-        catch (AddressNotFoundException)
-        {
-            //eat it
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex,"Error {Message} for ip: {Ip}",ex.Message,ip);
-        }
-
-        return gr;
-    }
-
-    internal class GeoResults
-    {
-        public string City { get; set; }
-        public string Country { get; set; }
-    }
-
-    internal class UniqueIp
-    {
-        public string IpAddress { get; set; }
-        public string City { get; set; }
-        public string Country { get; set; }
-    }
-
-    internal class ApplicationArguments
-    {
-        public string LogDirectory { get; set; }
-        public bool SuppressBadLines { get; set; }
-        public bool NoUpdatedLogs { get; set; }
-        public string CsvDirectory { get; set; }
     }
 }

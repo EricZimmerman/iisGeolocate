@@ -243,3 +243,5 @@ ModelManifest.xml
 
 # FAKE - F# Make
 .fake/
+# Test samples are .log files
+!iisGeolocate.Test/TestFiles/**/*.log

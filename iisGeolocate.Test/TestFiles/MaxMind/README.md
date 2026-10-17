@@ -1,0 +1,1 @@
+MaxMind's test databases (https://github.com/maxmind/MaxMind-DB/tree/main/test-data), dual licensed under the Apache License 2.0 or the MIT License. Copyright MaxMind, Inc. They hold made-up data for a few networks (for example 81.2.69.142 is London, United Kingdom, in GeoIP2-City-Test); the source data is in that repository's `source-data` folder.
