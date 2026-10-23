@@ -95,7 +95,7 @@ public class Program
     }
 
     /// <returns>
-    ///     0 on success. 1 when arguments are invalid, the database can't be used, a log can't be read or an output
+    ///     0 on success, also when logs are damaged. 1 when arguments are invalid, the database can't be used, a log or folder can't be read or an output
     ///     file can't be written
     /// </returns>
     private static int DoWork(string d, string csv, string db, bool sbl, bool nul)
@@ -204,6 +204,8 @@ public class Program
         Console.WriteLine();
 
         var failed = new List<string>();
+        //logs that could not be read or whose output could not be written (exit code 1); the others in failed are damaged
+        var unread = 0;
         var ts = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
         var sw = Stopwatch.StartNew();
         long totalRows = 0;
@@ -260,6 +262,7 @@ public class Program
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
                     failed.Add(file);
+                    unread += 1;
                     Log.Error("\tError processing {File}: {Message}", file, ex.Message);
                 }
                 catch (Exception ex)
@@ -297,7 +300,8 @@ public class Program
 
         Console.WriteLine();
 
-        var exitCode = failed.Count > 0 ? 1 : 0;
+        //a damaged log is listed, but it is not a failure of the tool
+        var exitCode = unread > 0 || _searchIncomplete ? 1 : 0;
 
         if (geo.UniqueIps.Count == 0)
         {
@@ -325,6 +329,9 @@ public class Program
 
         return exitCode;
     }
+
+    /// <summary>A folder under -d could not be read (net472; net10.0 skips them silently)</summary>
+    private static bool _searchIncomplete = false;
 
     /// <summary>*.log files under the directory (any case), sorted, skipping folders that can't be read</summary>
     private static List<string> FindLogs(string dir)
@@ -361,6 +368,7 @@ public class Program
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 Log.Warning("Could not read {Dir}: {Message}", current, ex.Message);
+                _searchIncomplete = true;
             }
         }
 #endif

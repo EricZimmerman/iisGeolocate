@@ -197,6 +197,40 @@ public class CliTests
     }
 
     [Test]
+    public void DamagedLogExitsZero()
+    {
+        // random bytes: every line is a bad row; a damaged log is not a failure of the tool
+        var logs = Logs();
+        var bytes = new byte[8192];
+        new System.Random(1).NextBytes(bytes);
+        File.WriteAllBytes(Path.Combine(logs, "random.log"), bytes);
+
+        var (exitCode, output) = Run("-d", logs, "--csv", Out, "--db", TestData.CityDb, "--sbl");
+
+        exitCode.Should().Be(0, output);
+    }
+
+    [Test]
+    public void LockedLogExitsOne()
+    {
+        if (System.OperatingSystem.IsWindows() == false)
+        {
+            Assert.Ignore("Windows only");
+        }
+
+        var logs = Logs();
+        var locked = Directory.GetFiles(logs, "*.log", SearchOption.AllDirectories).First();
+
+        using (new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var (exitCode, output) = Run("-d", logs, "--csv", Out, "--db", TestData.CityDb);
+
+            exitCode.Should().Be(1, output);
+            output.Should().Contain("Failed files: 1");
+        }
+    }
+
+    [Test]
     public void UnwritableOutputExitsOne()
     {
         var file = Path.Combine(_dir, "file");
