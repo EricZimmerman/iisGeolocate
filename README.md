@@ -9,7 +9,7 @@ that can't be read are written to a file to review.
 | **Version** | 2026.10.0 |
 | **Download** | [.NET 10](https://download.ericzimmermanstools.com/net/iisGeolocate.zip) (recommended) &middot; [.NET Framework 4.7.2](https://download.ericzimmermanstools.com/iisGeolocate.zip) |
 | **All tools** | [ericzimmerman.github.io](https://ericzimmerman.github.io) or [Get-ZimmermanTools](https://download.ericzimmermanstools.com/Get-ZimmermanTools.zip), which downloads them all and keeps them current |
-| **Changes** | [ChangeLog.txt](https://download.ericzimmermanstools.com/ChangeLog.txt) |
+| **Changes** | [ChangeLog](https://ericzimmerman.github.io/changelog/) |
 | **Issues** | [EricZimmerman/iisGeolocate](https://github.com/EricZimmerman/iisGeolocate/issues) or [EricZimmerman/Issues](https://github.com/EricZimmerman/Issues/issues) |
 
 ## Requirements
@@ -100,7 +100,7 @@ Enterprise and Country databases work (a Country database gives no cities); othe
 - Exit code 1 when the tool fails (it was always 0, even after a crash). Error reports include source file and line
   numbers.
 
-The full list is in the [ChangeLog](https://download.ericzimmermanstools.com/ChangeLog.txt).
+The full list is in the [ChangeLog](https://ericzimmerman.github.io/changelog/).
 
 ## Building
 
