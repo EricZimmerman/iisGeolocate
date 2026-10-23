@@ -330,19 +330,27 @@ public class Program
         return exitCode;
     }
 
-    /// <summary>A folder under -d could not be read (net472; net10.0 skips them silently)</summary>
+    /// <summary>A folder under -d could not be read (reported, the rest is processed, exit code 1)</summary>
     private static bool _searchIncomplete = false;
 
-    /// <summary>*.log files under the directory (any case), sorted, skipping folders that can't be read</summary>
+    /// <summary>*.log files under the directory (any case), sorted, reporting and skipping folders that can't be read</summary>
     private static List<string> FindLogs(string dir)
     {
 #if NET
-        var options = new EnumerationOptions
+        var files = new List<string>();
+        using (var finder = new LogFinder(dir))
         {
-            RecurseSubdirectories = true, IgnoreInaccessible = true, MatchCasing = MatchCasing.CaseInsensitive,
-            AttributesToSkip = 0
-        };
-        var files = Directory.EnumerateFiles(dir, "*.log", options).ToList();
+            while (finder.MoveNext())
+            {
+                files.Add(finder.Current);
+            }
+
+            foreach (var (folder, reason) in finder.Unreadable)
+            {
+                Log.Error("Unable to read folder {Folder}: {Reason}", folder ?? dir, reason);
+                _searchIncomplete = true;
+            }
+        }
 #else
         var files = new List<string>();
         var pending = new Stack<string>();
@@ -367,7 +375,7 @@ public class Program
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                Log.Warning("Could not read {Dir}: {Message}", current, ex.Message);
+                Log.Error("Unable to read folder {Folder}: {Reason}", current, ex.Message);
                 _searchIncomplete = true;
             }
         }
@@ -375,6 +383,51 @@ public class Program
         files.Sort(StringComparer.OrdinalIgnoreCase);
         return files;
     }
+
+#if NET
+    /// <summary>
+    ///     *.log files (any case) under a folder, recursively, as Directory.EnumerateFiles found them. Folders that can't be
+    ///     read are skipped and listed in <see cref="Unreadable" /> (IgnoreInaccessible skipped them silently; a null folder
+    ///     is the root, reported before this class's fields were set)
+    /// </summary>
+    private sealed class LogFinder : System.IO.Enumeration.FileSystemEnumerator<string>
+    {
+        private string _lastRecursed;
+
+        public readonly List<(string Folder, string Reason)> Unreadable = new();
+
+        public LogFinder(string directory) : base(directory,
+            new EnumerationOptions { IgnoreInaccessible = false, RecurseSubdirectories = true, AttributesToSkip = 0 })
+        {
+        }
+
+        protected override bool ShouldRecurseIntoEntry(ref System.IO.Enumeration.FileSystemEntry entry)
+        {
+            //the subfolder is opened right after this: an error in ContinueOnError is about it
+            _lastRecursed = entry.ToFullPath();
+            return true;
+        }
+
+        protected override bool ShouldIncludeEntry(ref System.IO.Enumeration.FileSystemEntry entry)
+        {
+            _lastRecursed = null;
+            return !entry.IsDirectory &&
+                   System.IO.Enumeration.FileSystemName.MatchesSimpleExpression("*.log", entry.FileName, true);
+        }
+
+        protected override string TransformEntry(ref System.IO.Enumeration.FileSystemEntry entry)
+        {
+            return entry.ToFullPath();
+        }
+
+        protected override bool ContinueOnError(int error)
+        {
+            Unreadable?.Add((_lastRecursed, new System.ComponentModel.Win32Exception(error).Message));
+            _lastRecursed = null;
+            return true;
+        }
+    }
+#endif
 
     private class CustomHelpAction : SynchronousCommandLineAction
     {

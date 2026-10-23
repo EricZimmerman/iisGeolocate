@@ -231,6 +231,30 @@ public class CliTests
     }
 
     [Test]
+    public void UnreadableFolderExitsOne()
+    {
+        if (!System.OperatingSystem.IsWindows())
+        {
+            Assert.Ignore("Windows only");
+            return;
+        }
+
+        //a folder under -d that can't be read is reported, the other logs are processed, and the exit code is 1
+        var logs = Logs();
+        var denied = Path.Combine(logs, "denied");
+        TestData.WriteLog(denied, "u_ex260103.log", TestData.IisLog("81.2.69.142"));
+
+        using (new DeniedFolder(denied))
+        {
+            var (exitCode, output) = Run("-d", logs, "--csv", Out, "--db", TestData.CityDb);
+
+            exitCode.Should().Be(1, output);
+            output.Should().Contain("Unable to read folder " + denied);
+            output.Should().Contain("Found 2 log files");
+        }
+    }
+
+    [Test]
     public void UnwritableOutputExitsOne()
     {
         var file = Path.Combine(_dir, "file");
