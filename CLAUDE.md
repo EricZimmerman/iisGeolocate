@@ -14,7 +14,7 @@ iisGeolocate is a command line tool (`net472;net10.0`) that converts IIS logs (a
 
 ## Behavior to keep
 
-- `--co` (Issues #259, off by default): the console messages also go to `<yyyyMMddHHmmss>_iisGeolocate_<version>_ConsoleLog.txt` (UTC) in `--csv` (`ConsoleLog.cs`). The logger is made in `Main` (for the help), so `DoWork` replaces it with one that also has the file once `--csv` is known. Template `[HH:mm:ss.fff LVL] {Message:l}` (`:lj` put enum values in quotes).
+- `--co` (Issues #259, on by default, `--co false` turns it off): the console messages also go to `<yyyyMMddHHmmss>_iisGeolocate_<version>_ConsoleLog.txt` (`runTime`, the UTC time the run started, which `ProcessLogs` also uses for the CSV names) in `--csv` (`ConsoleLog.cs`). The logger is made in `Main` (for the help), so `DoWork` replaces it with one that also has the file once `--csv` is known. Template `[HH:mm:ss.fff LVL] {Message:l}` (`:lj` put enum values in quotes).
 - Chunk CSV columns are the log's field names as written (`c-ip`, `cs(User-Agent)`), then `GeoCity`, `GeoCountry`. CSVs use `InvariantCulture` (2026.5 used the current culture, so `;` on some systems). 2026.5 wrote no header row (`CsvWriter.WriteRecord` of dynamic records doesn't write one).
 - `NA`/`NA` for addresses that are not public, not in the database or not an IP address; spaces in names become `_` in the chunk CSVs (not in `!UniqueIPs.csv`), as in earlier versions; a null city (country-only data) is an empty cell.
 - Nothing is written outside `--csv` (2026.5 wrote `tmp.txt` next to the exe and buffered whole logs in memory).

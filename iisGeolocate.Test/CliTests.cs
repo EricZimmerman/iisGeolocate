@@ -107,15 +107,20 @@ public class CliTests
     [Test]
     public void ConsoleLog()
     {
-        //Issues #259: --co saves the console messages to <yyyyMMddHHmmss>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory
-        var (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb);
+        //Issues #259: --co (on by default) saves the console messages to <yyyyMMddHHmmss>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory
+        var (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb, "--co", "false");
         exitCode.Should().Be(0, output);
-        Directory.GetFiles(Out, "*_ConsoleLog.txt").Should().BeEmpty("--co is off by default");
+        Directory.GetFiles(Out, "*_ConsoleLog.txt").Should().BeEmpty("--co false turns it off");
         output.Should().NotContain("Console log:");
 
-        (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb, "--co");
+        Directory.Delete(Out, true);
+        (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb);
         exitCode.Should().Be(0, output);
-        var log = Directory.GetFiles(Out, "*_ConsoleLog.txt").Should().ContainSingle().Subject;
+        var log = Directory.GetFiles(Out, "*_ConsoleLog.txt").Should().ContainSingle("--co is on by default").Subject;
+        //the CSV names have the same (UTC) time as the log
+        var ts = Path.GetFileName(log)[..14];
+        Directory.GetFiles(Out, ts + "_*.csv").Should().NotBeEmpty();
+        Directory.GetFiles(Out, "2*.csv").Should().OnlyContain(t => Path.GetFileName(t).StartsWith(ts + "_"));
         Path.GetFileName(log).Should().MatchRegex(@"^\d{14}_iisGeolocate_\d+\.\d+\.\d+_ConsoleLog\.txt$");
         output.Should().Contain("Console log: " + log);
         var text = File.ReadAllText(log);
@@ -147,7 +152,7 @@ public class CliTests
     [Test]
     public void NulWritesOnlyUniqueIpsAndBadRows()
     {
-        var (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb, "--nul");
+        var (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb, "--nul", "--co", "false");
 
         exitCode.Should().Be(0, output);
         Directory.GetFiles(Out).Select(Path.GetFileName).Should()

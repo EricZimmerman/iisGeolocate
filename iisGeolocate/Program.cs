@@ -75,8 +75,8 @@ public class Program
 
         var coOpt = new Option<bool>("--co")
         {
-            Description = "Save all console messages to <timestamp>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory",
-            DefaultValueFactory = _ => false
+            Description = "When true, save all console messages to <timestamp>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory. Use --co false to turn it off",
+            DefaultValueFactory = _ => true
         };
 
         _rootCommand = new RootCommand
@@ -118,7 +118,9 @@ public class Program
         }
 
         //--csv is known now: the same console logger, with the file too
-        var consoleLog = co ? ConsoleLog.GetPath(DateTimeOffset.UtcNow, csv) : null;
+        //one UTC time per run, for the CSV names and the console log
+        var runTime = DateTimeOffset.UtcNow;
+        var consoleLog = co ? ConsoleLog.GetPath(runTime, csv) : null;
         if (consoleLog != null)
         {
             Log.Logger = new LoggerConfiguration()
@@ -185,11 +187,11 @@ public class Program
             Log.Information("Using {Db} ({Type}, built {Built:yyyy-MM-dd})", db, geo.DatabaseType, geo.BuildDate);
             Console.WriteLine();
 
-            return ProcessLogs(d, csv, sbl, nul, geo);
+            return ProcessLogs(d, csv, sbl, nul, geo, runTime);
         }
     }
 
-    private static int ProcessLogs(string d, string csv, bool sbl, bool nul, GeoLookup geo)
+    private static int ProcessLogs(string d, string csv, bool sbl, bool nul, GeoLookup geo, DateTimeOffset runTime)
     {
         var logFiles = FindLogs(d);
 
@@ -229,7 +231,7 @@ public class Program
         var failed = new List<string>();
         //logs that could not be read or whose output could not be written (exit code 1); the others in failed are damaged
         var unread = 0;
-        var ts = DateTimeOffset.UtcNow.ToString("yyyyMMddHHmmss");
+        var ts = runTime.ToString("yyyyMMddHHmmss");
         var sw = Stopwatch.StartNew();
         long totalRows = 0;
         long totalBad = 0;
