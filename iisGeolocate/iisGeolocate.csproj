@@ -10,7 +10,7 @@
         <Description>Add geolocation information to IIS logs</Description>
         <Copyright>Eric R. Zimmerman 2027</Copyright>
         <LangVersion>10</LangVersion>
-        <Version>2026.10.0</Version>
+        <Version>2026.10.1</Version>
         <IsPackable>false</IsPackable>
     </PropertyGroup>
     <PropertyGroup>
@@ -37,5 +37,6 @@
         <PackageReference Include="MaxMind.GeoIP2" Version="6.1.0" />
         <PackageReference Include="Serilog" Version="4.4.0" />
         <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+        <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
     </ItemGroup>
 </Project>

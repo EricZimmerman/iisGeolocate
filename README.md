@@ -6,7 +6,7 @@ that can't be read are written to a file to review.
 
 | | |
 |---|---|
-| **Version** | 2026.10.0 |
+| **Version** | 2026.10.1 |
 | **Download** | [.NET 10](https://download.ericzimmermanstools.com/net/iisGeolocate.zip) (recommended) &middot; [.NET Framework 4.7.2](https://download.ericzimmermanstools.com/iisGeolocate.zip) |
 | **All tools** | [ericzimmerman.github.io](https://ericzimmerman.github.io) or [Get-ZimmermanTools](https://download.ericzimmermanstools.com/Get-ZimmermanTools.zip), which downloads them all and keeps them current |
 | **Changes** | [ChangeLog](https://ericzimmerman.github.io/changelog/) |
@@ -31,6 +31,7 @@ Options:
   --db <db>       MaxMind database to use (City, Enterprise or Country). Default is GeoIP2-City.mmdb, else GeoLite2-City.mmdb, next to iisGeolocate
   --sbl           When true, do NOT show bad lines to console (they are still logged to a file). Default is false
   --nul           When true, do NOT create updated CSV files in --csv directory. Default is false
+  --co            Save all console messages to <timestamp>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory
   -?, -h, --help  Show help and usage information
   --version       Show version information
 ```
@@ -99,6 +100,7 @@ Enterprise and Country databases work (a Country database gives no cities); othe
 - CSVs always use commas (they used the system's list separator, such as `;` on German systems).
 - Exit code 1 when the tool fails (it was always 0, even after a crash). Error reports include source file and line
   numbers.
+- `--co` saves all console messages to `<yyyyMMddHHmmss>_iisGeolocate_<version>_ConsoleLog.txt` in the `--csv` directory (time in UTC; Issues #259) (2026.10.1).
 
 The full list is in the [ChangeLog](https://ericzimmerman.github.io/changelog/).
 

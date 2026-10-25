@@ -73,19 +73,26 @@ public class Program
             DefaultValueFactory = _ => false
         };
 
+        var coOpt = new Option<bool>("--co")
+        {
+            Description = "Save all console messages to <timestamp>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory",
+            DefaultValueFactory = _ => false
+        };
+
         _rootCommand = new RootCommand
         {
             dOpt,
             csvOpt,
             dbOpt,
             sblOpt,
-            nulOpt
+            nulOpt,
+            coOpt
         };
 
         _rootCommand.Description = Header + "\r\n\r\n" + Footer;
 
         _rootCommand.SetAction(result => DoWork(result.GetValue(dOpt), result.GetValue(csvOpt), result.GetValue(dbOpt),
-            result.GetValue(sblOpt), result.GetValue(nulOpt)));
+            result.GetValue(sblOpt), result.GetValue(nulOpt), result.GetValue(coOpt)));
 
         var exitCode = await _rootCommand.Parse(args).InvokeAsync();
 
@@ -98,7 +105,7 @@ public class Program
     ///     0 on success, also when logs are damaged. 1 when arguments are invalid, the database can't be used, a log or folder can't be read or an output
     ///     file can't be written
     /// </returns>
-    private static int DoWork(string d, string csv, string db, bool sbl, bool nul)
+    private static int DoWork(string d, string csv, string db, bool sbl, bool nul, bool co)
     {
         if (string.IsNullOrEmpty(d) || string.IsNullOrEmpty(csv))
         {
@@ -110,10 +117,26 @@ public class Program
             return 1;
         }
 
+        //--csv is known now: the same console logger, with the file too
+        var consoleLog = co ? ConsoleLog.GetPath(DateTimeOffset.UtcNow, csv) : null;
+        if (consoleLog != null)
+        {
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.Console(outputTemplate: "{Message:lj}{NewLine}{Exception}")
+                .WriteTo.File(consoleLog, outputTemplate: ConsoleLog.Template)
+                .CreateLogger();
+        }
+
         Log.Information("{Header}", Header);
         Console.WriteLine();
         Log.Information("Command line: {Args}", string.Join(" ", Environment.GetCommandLineArgs().Skip(1)));
         Console.WriteLine();
+
+        if (consoleLog != null)
+        {
+            Log.Information("Console log: {Path}", consoleLog);
+            Console.WriteLine();
+        }
 
         d = Path.GetFullPath(d);
         csv = Path.GetFullPath(csv);

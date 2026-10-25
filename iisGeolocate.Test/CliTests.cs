@@ -105,6 +105,25 @@ public class CliTests
     }
 
     [Test]
+    public void ConsoleLog()
+    {
+        //Issues #259: --co saves the console messages to <yyyyMMddHHmmss>_iisGeolocate_<version>_ConsoleLog.txt in the --csv directory
+        var (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb);
+        exitCode.Should().Be(0, output);
+        Directory.GetFiles(Out, "*_ConsoleLog.txt").Should().BeEmpty("--co is off by default");
+        output.Should().NotContain("Console log:");
+
+        (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb, "--co");
+        exitCode.Should().Be(0, output);
+        var log = Directory.GetFiles(Out, "*_ConsoleLog.txt").Should().ContainSingle().Subject;
+        Path.GetFileName(log).Should().MatchRegex(@"^\d{14}_iisGeolocate_\d+\.\d+\.\d+_ConsoleLog\.txt$");
+        output.Should().Contain("Console log: " + log);
+        var text = File.ReadAllText(log);
+        text.Should().MatchRegex(@"\[\d\d:\d\d:\d\d\.\d{3} INF\] iisgeolocate version ");
+        text.Should().Contain("Command line: -d ").And.Contain("Found 2 log files").And.Contain("Ignoring!!! Row: 'bad row'");
+    }
+
+    [Test]
     public void BadRowsAreShownUnlessSuppressed()
     {
         var (exitCode, output) = Run("-d", Logs(), "--csv", Out, "--db", TestData.CityDb);
