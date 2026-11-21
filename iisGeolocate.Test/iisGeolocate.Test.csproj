@@ -6,6 +6,7 @@
     <Copyright>Eric R. Zimmerman 2027</Copyright>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="CsvHelper" Version="34.1.0" />
     <PackageReference Include="FluentAssertions" Version="[7.2.2,8.0.0)" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
     <PackageReference Include="NUnit" Version="5.0.0" />

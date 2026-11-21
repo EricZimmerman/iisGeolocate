@@ -11,7 +11,6 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 using CsvHelper;
-using CsvHelper.Configuration;
 using Exceptionless;
 using Serilog;
 
@@ -211,10 +210,8 @@ public class Program
         {
             Directory.CreateDirectory(csv);
 
-            badCsv = new CsvWriter(new StreamWriter(badDataFile, false, new UTF8Encoding(false)),
-                new CsvConfiguration(CultureInfo.InvariantCulture) { Delimiter = "\t" });
+            badCsv = CsvWriter.ToFile(badDataFile, LogProcessor.CsvOptions with { Separator = '\t' });
             badCsv.WriteHeader<BadRow>();
-            badCsv.NextRecord();
         }
         catch (Exception ex)
         {
@@ -247,7 +244,6 @@ public class Program
                     var result = LogProcessor.Process(file, nul ? null : csv, ts, geo, bad =>
                     {
                         badCsv.WriteRecord(bad);
-                        badCsv.NextRecord();
 
                         if (sbl == false)
                         {
@@ -340,8 +336,7 @@ public class Program
 
         try
         {
-            using var uniqOut = new StreamWriter(uniqueFile, false, new UTF8Encoding(false));
-            using var csw = new CsvWriter(uniqOut, CultureInfo.InvariantCulture);
+            using var csw = CsvWriter.ToFile(uniqueFile, LogProcessor.CsvOptions);
             csw.WriteRecords(geo.UniqueIps);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -40,12 +40,13 @@ public class ProcessorTests
 
     private static List<string[]> ReadCsv(string path)
     {
-        using var reader = new CsvHelper.CsvReader(new StreamReader(path),
-            System.Globalization.CultureInfo.InvariantCulture);
+        //every record, the header too
+        using var reader = CsvHelper.CsvReader.FromFile(path,
+            new CsvHelper.CsvReaderOptions { Separator = ',', HasHeader = false });
         var rows = new List<string[]>();
         while (reader.Read())
         {
-            rows.Add(reader.Parser.Record!);
+            rows.Add(reader.Current.ToArray());
         }
 
         return rows;

@@ -7,7 +7,8 @@ using CsvHelper;
 
 namespace iisGeolocate;
 
-public class BadRow
+[CsvRecord]
+public partial class BadRow
 {
     public string SourceFile { get; set; }
     public long LineNumber { get; set; }
@@ -48,6 +49,18 @@ public class ChunkResult
 public static class LogProcessor
 {
     public const string ClientIpField = "c-ip";
+
+    /// <summary>
+    ///     The CSV options of every output file: CsvHelper 33's output (fields with leading or trailing spaces quoted,
+    ///     True/False), UTF-8 without a BOM, CRLF
+    /// </summary>
+    public static readonly CsvWriterOptions CsvOptions = new()
+    {
+        //33 quoted text that starts or ends with a space (not a tab, as CsvQuoting.WhenNeededOrWhitespace does)
+        ShouldQuote = (field, fieldType, fieldIndex, recordIndex) => field.Length > 0 && (field[0] == ' ' || field[field.Length - 1] == ' '),
+        TrueValue = "True",
+        FalseValue = "False"
+    };
 
     /// <param name="file">The log</param>
     /// <param name="csvDirectory">Where the chunk CSVs go, or null to write none (--nul)</param>
@@ -185,7 +198,7 @@ public static class LogProcessor
 
             Result.CsvFile = outFile;
 
-            _csv = new CsvWriter(new StreamWriter(outFile, false, new UTF8Encoding(false)), CultureInfo.InvariantCulture);
+            _csv = CsvWriter.ToFile(outFile, CsvOptions);
 
             foreach (var field in fields)
             {
@@ -194,7 +207,7 @@ public static class LogProcessor
 
             _csv.WriteField("GeoCity");
             _csv.WriteField("GeoCountry");
-            _csv.NextRecord();
+            _csv.EndRecord();
         }
 
         public ChunkResult Result { get; }
@@ -222,7 +235,7 @@ public static class LogProcessor
 
             _csv.WriteField(geo.City);
             _csv.WriteField(geo.Country);
-            _csv.NextRecord();
+            _csv.EndRecord();
         }
     }
 }

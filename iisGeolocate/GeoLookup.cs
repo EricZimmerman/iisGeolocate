@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using CsvHelper;
 using MaxMind.GeoIP2;
 
 namespace iisGeolocate;
@@ -19,7 +20,8 @@ public class GeoResult
     public static readonly GeoResult NotAvailable = new() { City = "NA", Country = "NA" };
 }
 
-public class UniqueIp
+[CsvRecord]
+public partial class UniqueIp
 {
     public string IpAddress { get; set; }
     public string City { get; set; }
