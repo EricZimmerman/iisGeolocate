@@ -6,7 +6,7 @@ that can't be read are written to a file to review.
 
 | | |
 |---|---|
-| **Version** | 2026.10.1 |
+| **Version** | 2026.11.0 |
 | **Download** | [.NET 10](https://download.ericzimmermanstools.com/net/iisGeolocate.zip) (recommended) &middot; [.NET Framework 4.7.2](https://download.ericzimmermanstools.com/iisGeolocate.zip) |
 | **All tools** | [ericzimmerman.github.io](https://ericzimmerman.github.io) or [Get-ZimmermanTools](https://download.ericzimmermanstools.com/Get-ZimmermanTools.zip), which downloads them all and keeps them current |
 | **Changes** | [ChangeLog](https://ericzimmerman.github.io/changelog/) |
@@ -83,6 +83,10 @@ Enterprise and Country databases work (a Country database gives no cities); othe
 |---|---|
 | `0` | Success. Damaged logs (bad rows, errors while processing; listed under "Failed files") and finding no logs are not a failure |
 | `1` | The tool failed: invalid or missing arguments, a missing `-d` directory, no usable database, a log or folder it can't read, or an output file that can't be written. Folders under `-d` that can't be read are reported (`Unable to read folder <path>: <reason>`) and the rest is still processed |
+
+## What's new in 2026.11
+
+- Moved to CsvHelper 34, a rewrite of the CSV library; the CSV output is byte for byte the same as 2026.10's.
 
 ## What's new in 2026.10
 
